@@ -101,9 +101,14 @@ class RobotArm:
             speed_deg_s=speed_deg_s,
         )
 
-    def jog_joints(self, roll_delta_deg=0.0, pitch1_delta_deg=0.0,
-                   pitch2_delta_deg=0.0, pitch3_delta_deg=0.0,
-                   speed_deg_s=ARM_SERVO_SPEED_DEG_S):
+    def jog_joints(
+        self,
+        roll_delta_deg=0.0,
+        pitch1_delta_deg=0.0,
+        pitch2_delta_deg=0.0,
+        pitch3_delta_deg=0.0,
+        speed_deg_s=ARM_SERVO_SPEED_DEG_S,
+    ):
         return self._move_to_joint_pose(
             self.roll_deg + roll_delta_deg,
             self.pitch1_deg + pitch1_delta_deg,
@@ -141,10 +146,12 @@ class RobotArm:
         pitch1 = float(pitch1)
         pitch2 = float(pitch2)
         pitch3 = float(pitch3)
-        (self.roll_deg,
-         self.pitch1_deg,
-         self.pitch2_deg,
-         self.pitch3_deg) = self._clamp_joint_pose(
+        (
+            self.roll_deg,
+            self.pitch1_deg,
+            self.pitch2_deg,
+            self.pitch3_deg,
+        ) = self._clamp_joint_pose(
             roll,
             pitch1,
             pitch2,
@@ -153,10 +160,12 @@ class RobotArm:
         return self._build_move_result()
 
     def apply_joint_pose(self, speed_deg_s=ARM_SERVO_SPEED_DEG_S):
-        (self.roll_deg,
-         self.pitch1_deg,
-         self.pitch2_deg,
-         self.pitch3_deg) = self._clamp_joint_pose(
+        (
+            self.roll_deg,
+            self.pitch1_deg,
+            self.pitch2_deg,
+            self.pitch3_deg,
+        ) = self._clamp_joint_pose(
             self.roll_deg,
             self.pitch1_deg,
             self.pitch2_deg,
@@ -171,13 +180,20 @@ class RobotArm:
         )
         return self._build_move_result(speed_deg_s)
 
-    def _move_to_joint_pose(self, target_roll_deg, target_pitch1_deg,
-                            target_pitch2_deg, target_pitch3_deg,
-                            speed_deg_s=ARM_SERVO_SPEED_DEG_S):
-        (self.roll_deg,
-         self.pitch1_deg,
-         self.pitch2_deg,
-         self.pitch3_deg) = self._clamp_joint_pose(
+    def _move_to_joint_pose(
+        self,
+        target_roll_deg,
+        target_pitch1_deg,
+        target_pitch2_deg,
+        target_pitch3_deg,
+        speed_deg_s=ARM_SERVO_SPEED_DEG_S,
+    ):
+        (
+            self.roll_deg,
+            self.pitch1_deg,
+            self.pitch2_deg,
+            self.pitch3_deg,
+        ) = self._clamp_joint_pose(
             target_roll_deg,
             target_pitch1_deg,
             target_pitch2_deg,

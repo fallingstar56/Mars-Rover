@@ -12,25 +12,32 @@
 作者 王笑
 日期 20260528
 """
-import math, time, _thread, sys, machine
+
+import _thread
+import machine
+import math
+import time
+
 time.sleep(3)
 
 from machine import UART
 from esp32 import CAN
-from ps2_lib import PS2Controller, PS2Receiver
-from ps2_control import ps2_loop
 
-
+from chassis_control import LunarRover
 from arm_control import RobotArm
 from motor_lib import MotorBus
-from chassis_control import LunarRover
-from servo_control import ServoControl, get_all_servo_ids
-from servo_lib import ServoBus
+from ps2_control import ps2_loop
+from ps2_lib import PS2Controller, PS2Receiver
 from robot_config import (
     CAN_BAUDRATE,
     CAN_BUS_ID,
     CAN_RX,
     CAN_TX,
+    CAMERA_INIT_ANGLE_DEG,
+    CAMERA_UART_BAUD,
+    CAMERA_UART_ID,
+    CAMERA_UART_RX,
+    CAMERA_UART_TX,
     CAMERA_SERVO_ID,
     DEFAULT_ACC_RAD_S2,
     PS2_CLK,
@@ -42,17 +49,13 @@ from robot_config import (
     SERVO_UART_ID,
     SERVO_UART_RX,
     SERVO_UART_TX,
-    CAMERA_UART_ID,
-    CAMERA_UART_BAUD,
-    CAMERA_UART_TX,
-    CAMERA_UART_RX,
-    CAMERA_INIT_ANGLE_DEG,
     RESERVE_SERVO_ENABLED,
     RESERVE_SERVO_IDS,
 )
+from servo_control import ServoControl, get_all_servo_ids
+from servo_lib import ServoBus
 
-#定义变量
-#相机
+# 相机串口共享数据。
 camera_data = {"value": None}
 
 # 视觉跟踪参数。delta_x/delta_y 是视觉端计算的中心框与识别框边缘距离。
@@ -150,8 +153,8 @@ def track_camera_target(rover, delta_x, delta_y):
     rover.drive(speed_rad_s, steer_angle_deg)
     return speed_rad_s, steer_angle_deg
 
-#硬件配置与初始化
-#舵机
+# 硬件配置与初始化。
+# 舵机。
 servo_uart = UART(
     SERVO_UART_ID,
     SERVO_UART_BAUD,
@@ -165,7 +168,7 @@ camera_uart = UART(
     CAMERA_UART_BAUD,
     tx=CAMERA_UART_TX,
     rx=CAMERA_UART_RX,
-    timeout=64
+    timeout=64,
 )
 
 try:
@@ -176,35 +179,35 @@ try:
         tx=CAN_TX,
         rx=CAN_RX,
     )
-except Exception as e:
-    print(f"CAN硬件占用。触发系统级软复位，别慌，请点击STOP重新连接")
+except Exception:
+    print("CAN硬件占用。触发系统级软复位，别慌，请点击STOP重新连接")
     time.sleep(1)
     machine.reset()
 can.clear_rx_queue()
 
-#多线程通讯函数
-#相机串口通信，储存相机传输的数据
+
+# 相机串口通信线程，储存相机传输的数据。
 def re_uart(uart):
     global camera_data, camera_uart
     try:
         while True:
-            if uart.any() and uart == camera_uart :
-                data                 = uart.read()
+            if uart.any() and uart == camera_uart:
+                data = uart.read()
                 camera_data["value"] = data.decode("utf-8", "replace")
                 print("串口1收到数据:", camera_data["value"])
-            time.sleep_ms(10)       # 防止形成阻塞              
+            time.sleep_ms(10)  # 防止形成阻塞。
     except UnicodeError:
         print("【成功拦截乱码】串口1收到一串无法识别的非文本数据:")
         pass
-        _thread.start_new_thread(re_uart, (uart, ))
+        _thread.start_new_thread(re_uart, (uart,))
 
 
 motor_bus = MotorBus(can)
 servo_bus = ServoBus(servo_uart)
-servo_bus.reset_turns_polling(get_all_servo_ids()) #清除多圈
-servo_bus.lock_all(get_all_servo_ids())   #舵机锁力
+servo_bus.reset_turns_polling(get_all_servo_ids())  # 清除多圈。
+servo_bus.lock_all(get_all_servo_ids())  # 舵机锁力。
 servo_control = ServoControl(servo_bus)
-arm = RobotArm(servo_control) #基于运动学的舵机控制接口
+arm = RobotArm(servo_control)  # 基于运动学的舵机控制接口。
 rover = LunarRover(motor_bus, servo_control, arm=arm)
 
 
@@ -223,12 +226,13 @@ def reset_all_servos():
 # 必须先完成舵机复位，再启动串口线程和其他控制逻辑。
 reset_all_servos()
 
-#打开多线程
-_thread.start_new_thread(re_uart, (camera_uart, ))
+# 打开多线程。
+_thread.start_new_thread(re_uart, (camera_uart,))
+
 
 def main():
-    global camera_data#解析的串口数据
-    try:    
+    global camera_data  # 解析的串口数据。
+    try:
         if RUN_MODE == "ps2":
             try:
                 rover.prepare()
@@ -245,7 +249,7 @@ def main():
                 rover.disable()
             return
 
-        rover.prepare() #初始化底盘 电机使能
+        rover.prepare()  # 初始化底盘并使能电机。
         print("RUN_MODE=idle，电机已默认使能。学生可在示例区编写一次性控制程序。")
 
         # ================= 学生控制示例 =================
@@ -253,130 +257,126 @@ def main():
         # 注意：调试底盘前建议先架空车轮，避免小车突然运动。
 
         # 示例 1：底盘以 2.0 rad/s 前进 1 秒，然后停车。
-#        print("示例 1：底盘以 2.0 rad/s 前进 1 秒，然后停车。")
-#        rover.drive(speed_rad_s=2.0, steer_angle_deg=0.0)
-#       time.sleep(1) #必须要延迟，让指令有执行时间，如果没有sleep，指令会被立即覆盖，导致小车没有动作。
-#        rover.stop()
-#        time.sleep(1)
+        # print("示例 1：底盘以 2.0 rad/s 前进 1 秒，然后停车。")
+        # rover.drive(speed_rad_s=2.0, steer_angle_deg=0.0)
+        # time.sleep(1)  # 必须延迟，让指令有执行时间，避免指令被立即覆盖。
+        # rover.stop()
+        # time.sleep(1)
 
-#         # 示例 2：底盘以 2.0 rad/s、20 度转向角前进 1 秒，然后停车。
-#         print("示例 2：底盘以 2.0 rad/s、20 度转向角前进 1 秒，然后停车。")
-#         rover.drive(speed_rad_s=2.0, steer_angle_deg=20.0)
-#         time.sleep(1)
-#         rover.stop()
-#         time.sleep(1)
-# 
-#         # 示例 3：相机转到 -30 度，再回到 0 度。
-#         print("示例 3：相机转到 -30 度，再回到 0 度。")
-#         rover.servo_control.set_camera_angle(-30)
-#         time.sleep(1)
-#         rover.servo_control.set_camera_angle(0)
-#         time.sleep(1)
-# 
-#         # 示例 4：机械臂回初始位。
-#         print("示例 4：机械臂回初始位。")
-#         rover.arm.apply_initial_pose()
-#         time.sleep(2) #要给机械臂足够时间回初始位，否则后续指令可能会被覆盖，导致机械臂无法到达目标位置。
-# 
-#         # 示例 5：机械臂单关节点动，分别控制 Roll、Pitch1、Pitch2、Pitch3。
-#         # 如果前面运行过绝对角度控制，先同步真实舵机角度，再做 jog 增量控制。
-#         print("示例 5：机械臂单关节点动，分别控制 Roll、Pitch1、Pitch2、Pitch3。")
-#         rover.arm.sync_from_servos()
-#         rover.arm.jog_joints(roll_delta_deg=2.0)
-#         time.sleep(1)
-#         rover.arm.jog_joints(roll_delta_deg=-2.0)
-#         time.sleep(1)
-#         rover.arm.jog_joints(pitch1_delta_deg=2.0)
-#         time.sleep(1)
-#         rover.arm.jog_joints(pitch1_delta_deg=-2.0)
-#         time.sleep(1)
-#         rover.arm.jog_joints(pitch2_delta_deg=2.0)
-#         time.sleep(1)
-#         rover.arm.jog_joints(pitch2_delta_deg=-2.0)
-#         time.sleep(1)
-#         rover.arm.jog_joints(pitch3_delta_deg=2.0)
-#         time.sleep(1)
-#         rover.arm.jog_joints(pitch3_delta_deg=-2.0)
-#         time.sleep(1)
-# 
-#         # 示例 6：相机舵机点动，再转回。
-#         # 如果前面运行过相机绝对角度控制，先同步真实相机角度，再做 jog 增量控制。
-#         print("示例 6：相机舵机点动，再转回。")
-#         rover.arm.sync_camera_from_servo() #使用jog控制前，要先同步一次当前舵机的角度
-#         rover.arm.jog_camera(8.0)
-#         time.sleep(1)
-#         rover.arm.jog_camera(-8.0)
-#         time.sleep(1)
-# 
-#         # 示例 7：四个驱动电机分别设置不同转速，运行 1 秒后停车。
-#         # 注意：这是直接控制电机，不会自动调整转向舵机角度。
-#         print("示例 7：四个驱动电机分别设置不同转速，运行 1 秒后停车。")
-#         motor_speeds = (
-#             (1, 1.0),    # 左前电机 ID=1，速度 1.0 rad/s
-#             (2, 0.5),    # 右前电机 ID=2，速度 0.5 rad/s
-#             (3, -0.5),   # 左后电机 ID=3，速度 -0.5 rad/s
-#             (4, -1.0),   # 右后电机 ID=4，速度 -1.0 rad/s
-#         )
-#         for motor_id, speed_rad_s in motor_speeds:
-#             rover.motor_bus.set_acc(motor_id, DEFAULT_ACC_RAD_S2)
-#             rover.motor_bus.set_speed(motor_id, speed_rad_s)
-#         time.sleep(1)
-#         rover.motor_bus.stop_all(rover.motor_ids)
-#         time.sleep(1)
-# 
-#         # 示例 8：六个转向舵机分别设置不同角度。
-#         # 参数顺序：左前、左中、左后、右前、右中、右后。
-#         # print("示例 8：六个转向舵机分别设置不同角度。")
-#         rover.servo_control.set_steering_angles(
-#             20.0, 0.0, -20.0,
-#             -20.0, 0.0, 20.0,
-#         )
-#         time.sleep(1)
-#         rover.center_chassis_servos()
-#         time.sleep(1)
-# 
-#         # 示例 9：直接设置机械臂四个关节的目标角度。
-#         # 参数顺序：Roll、Pitch1、Pitch2、Pitch3。
-#         # 这是直接舵机角度控制，适合做固定姿态演示。
-#         print("示例 9：直接设置机械臂四个关节的目标角度。")
-#         rover.servo_control.set_arm_joint_angles(
-#             0.0, 50.0, -140.0, 0.0,
-#         )
-#         time.sleep(1)
-# 
-#         # 示例 10：读取机械臂四个关节角度。
-#         print("示例 10：读取机械臂四个关节角度。")
-#         print(rover.servo_control.read_arm_joint_angles())
-#         time.sleep(1)
-# 
-#         # 示例 11：预留舵机测试。
-#         # 需先在 robot_config.py 设置 RESERVE_SERVO_ENABLED = True，并在 RESERVE_SERVO_IDS 中填写 ID。
-#         print("示例 11：预留舵机测试。")
-#         if not RESERVE_SERVO_ENABLED:
-#             print("预留舵机未启用，请先在 robot_config.py 设置 RESERVE_SERVO_ENABLED = True。")
-#         else:
-#             reserve_id = RESERVE_SERVO_IDS[0]
-#             rover.servo_control.set_reserve_servo_angle(reserve_id, 30.0)
-#             time.sleep(1)
-#             angle = rover.servo_control.read_reserve_servo_angle(reserve_id)
-#             print("预留舵机 ID=%d 当前角度：" % reserve_id, angle)
-#             rover.servo_control.set_reserve_servo_angle(reserve_id, -2.0)
-#             time.sleep(1)
-# 
-#         # 示例 12：底盘以 1.0 rad/s 原地右转 1 秒，然后停车。
-#         # 原地转向：负数左转，正数右转。
-#         print("示例 12：底盘以 1.0 rad/s 原地右转 1 秒，然后停车。")
-#         rover.pivot_turn(speed_rad_s=1.0)
-#         time.sleep(1)
-#         rover.stop()
-#         time.sleep(1)
+        # 示例 2：底盘以 2.0 rad/s、20 度转向角前进 1 秒，然后停车。
+        # print("示例 2：底盘以 2.0 rad/s、20 度转向角前进 1 秒，然后停车。")
+        # rover.drive(speed_rad_s=2.0, steer_angle_deg=20.0)
+        # time.sleep(1)
+        # rover.stop()
+        # time.sleep(1)
 
+        # 示例 3：相机转到 -30 度，再回到 0 度。
+        # print("示例 3：相机转到 -30 度，再回到 0 度。")
+        # rover.servo_control.set_camera_angle(-30)
+        # time.sleep(1)
+        # rover.servo_control.set_camera_angle(0)
+        # time.sleep(1)
 
+        # 示例 4：机械臂回初始位。
+        # print("示例 4：机械臂回初始位。")
+        # rover.arm.apply_initial_pose()
+        # time.sleep(2)  # 给机械臂足够时间回初始位，避免后续指令提前覆盖。
 
+        # 示例 5：机械臂单关节点动，分别控制 Roll、Pitch1、Pitch2、Pitch3。
+        # 如果前面运行过绝对角度控制，先同步真实舵机角度，再做 jog 增量控制。
+        # print("示例 5：机械臂单关节点动，分别控制 Roll、Pitch1、Pitch2、Pitch3。")
+        # rover.arm.sync_from_servos()
+        # rover.arm.jog_joints(roll_delta_deg=2.0)
+        # time.sleep(1)
+        # rover.arm.jog_joints(roll_delta_deg=-2.0)
+        # time.sleep(1)
+        # rover.arm.jog_joints(pitch1_delta_deg=2.0)
+        # time.sleep(1)
+        # rover.arm.jog_joints(pitch1_delta_deg=-2.0)
+        # time.sleep(1)
+        # rover.arm.jog_joints(pitch2_delta_deg=2.0)
+        # time.sleep(1)
+        # rover.arm.jog_joints(pitch2_delta_deg=-2.0)
+        # time.sleep(1)
+        # rover.arm.jog_joints(pitch3_delta_deg=2.0)
+        # time.sleep(1)
+        # rover.arm.jog_joints(pitch3_delta_deg=-2.0)
+        # time.sleep(1)
 
+        # 示例 6：相机舵机点动，再转回。
+        # 如果前面运行过相机绝对角度控制，先同步真实相机角度，再做 jog 增量控制。
+        # print("示例 6：相机舵机点动，再转回。")
+        # rover.arm.sync_camera_from_servo()  # 使用 jog 控制前，先同步一次当前舵机角度。
+        # rover.arm.jog_camera(8.0)
+        # time.sleep(1)
+        # rover.arm.jog_camera(-8.0)
+        # time.sleep(1)
+
+        # 示例 7：四个驱动电机分别设置不同转速，运行 1 秒后停车。
+        # 注意：这是直接控制电机，不会自动调整转向舵机角度。
+        # print("示例 7：四个驱动电机分别设置不同转速，运行 1 秒后停车。")
+        # motor_speeds = (
+        #     (1, 1.0),  # 左前电机 ID=1，速度 1.0 rad/s。
+        #     (2, 0.5),  # 右前电机 ID=2，速度 0.5 rad/s。
+        #     (3, -0.5),  # 左后电机 ID=3，速度 -0.5 rad/s。
+        #     (4, -1.0),  # 右后电机 ID=4，速度 -1.0 rad/s。
+        # )
+        # for motor_id, speed_rad_s in motor_speeds:
+        #     rover.motor_bus.set_acc(motor_id, DEFAULT_ACC_RAD_S2)
+        #     rover.motor_bus.set_speed(motor_id, speed_rad_s)
+        # time.sleep(1)
+        # rover.motor_bus.stop_all(rover.motor_ids)
+        # time.sleep(1)
+
+        # 示例 8：六个转向舵机分别设置不同角度。
+        # 参数顺序：左前、左中、左后、右前、右中、右后。
+        # print("示例 8：六个转向舵机分别设置不同角度。")
+        # rover.servo_control.set_steering_angles(
+        #     20.0, 0.0, -20.0,
+        #     -20.0, 0.0, 20.0,
+        # )
+        # time.sleep(1)
+        # rover.center_chassis_servos()
+        # time.sleep(1)
+
+        # 示例 9：直接设置机械臂四个关节的目标角度。
+        # 参数顺序：Roll、Pitch1、Pitch2、Pitch3。
+        # 这是直接舵机角度控制，适合做固定姿态演示。
+        # print("示例 9：直接设置机械臂四个关节的目标角度。")
+        # rover.servo_control.set_arm_joint_angles(
+        #     0.0, 50.0, -140.0, 0.0,
+        # )
+        # time.sleep(1)
+
+        # 示例 10：读取机械臂四个关节角度。
+        # print("示例 10：读取机械臂四个关节角度。")
+        # print(rover.servo_control.read_arm_joint_angles())
+        # time.sleep(1)
+
+        # 示例 11：预留舵机测试。
+        # 需先在 robot_config.py 设置 RESERVE_SERVO_ENABLED = True，并在 RESERVE_SERVO_IDS 中填写 ID。
+        # print("示例 11：预留舵机测试。")
+        # if not RESERVE_SERVO_ENABLED:
+        #     print("预留舵机未启用，请先在 robot_config.py 设置 RESERVE_SERVO_ENABLED = True。")
+        # else:
+        #     reserve_id = RESERVE_SERVO_IDS[0]
+        #     rover.servo_control.set_reserve_servo_angle(reserve_id, 30.0)
+        #     time.sleep(1)
+        #     angle = rover.servo_control.read_reserve_servo_angle(reserve_id)
+        #     print("预留舵机 ID=%d 当前角度：" % reserve_id, angle)
+        #     rover.servo_control.set_reserve_servo_angle(reserve_id, -2.0)
+        #     time.sleep(1)
+
+        # 示例 12：底盘以 1.0 rad/s 原地右转 1 秒，然后停车。
+        # 原地转向：负数左转，正数右转。
+        # print("示例 12：底盘以 1.0 rad/s 原地右转 1 秒，然后停车。")
+        # rover.pivot_turn(speed_rad_s=1.0)
+        # time.sleep(1)
+        # rover.stop()
+        # time.sleep(1)
     except Exception as e:
-        print( "错误代码：",e )
-        
+        print("错误代码：", e)
+
     last_camera_data_ms = time.ticks_ms()
     camera_motion_active = False
     while True:
@@ -399,44 +399,16 @@ def main():
                     "视觉跟踪: dx=%d, dy=%d, speed=%.2f rad/s, steer=%.1f deg"
                     % (delta_x, delta_y, speed, steer)
                 )
-        elif (camera_motion_active and
-              time.ticks_diff(time.ticks_ms(), last_camera_data_ms) > CAMERA_DATA_TIMEOUT_MS):
+        elif (
+            camera_motion_active
+            and time.ticks_diff(time.ticks_ms(), last_camera_data_ms)
+            > CAMERA_DATA_TIMEOUT_MS
+        ):
             print("视觉数据超时，已停车")
             rover.stop()
             camera_motion_active = False
 
         time.sleep_ms(100)
-            #camera_uart.write("zdok")#同maixversion write_str
-            #code_data = camera_data["value"].split()
-#            if len(code_data) == 6:
-#                color1, color2, color3, num1_str, num2_str, num3_str = code_data
-#                try:
-"""
-                    num1 = int(num1_str)
-                    num2 = int(num2_str)
-                    num3 = int(num3_str)
-                    
-                    # 构建结构化数据判断位置和数量
-                    # 颜色的出现顺序代表了其在视野中的位置
-                    targets = [
-                        {"color": color1, "position": 1, "count": num1},
-                        {"color": color2, "position": 2, "count": num2},
-                        {"color": color3, "position": 3, "count": num3}
-                    ]
-                    
-                    # --- 测试输出 ---
-                    print("数据解析成功！目标信息如下：")
-                    for target in targets:
-                        print(f"位置 {target['position']}: 颜色为 {target['color']}, 数量为 {target['count']}")
-                        
-                except ValueError:
-                    print("错误：数量数据包含非数字字符，放弃当前帧。")
-            else:
-                print(f"警告：数据长度异常，期望6位，实际{len(camera_data)}位。原始数据: {camera_data}")
-"""
-        # camera_data["value"] = None
-        # print("正常运行")
-        
 
 
 if __name__ == "__main__":

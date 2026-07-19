@@ -93,7 +93,11 @@ class MotorBus:
         self._send(motor_id, 0x04, [1] + [0] * 7)
 
     def set_speed(self, motor_id, speed_rad_s):
-        speed_rad_s = clamp(speed_rad_s, -_DRIVER_SPEED_LIMIT_RAD_S, _DRIVER_SPEED_LIMIT_RAD_S)
+        speed_rad_s = clamp(
+            speed_rad_s,
+            -_DRIVER_SPEED_LIMIT_RAD_S,
+            _DRIVER_SPEED_LIMIT_RAD_S,
+        )
         self.write_param_float(motor_id, 0x700A, speed_rad_s)
 
     def stop(self, motor_id):

@@ -38,14 +38,34 @@ _MOTOR_CMD_EPS_RAD_S = 0.01
 _ACC_CMD_EPS_RAD_S2 = 0.01
 
 _DRIVE_WHEELS = (
-    {"name": "left_front", "motor_id": 1, "x": _HALF_WHEELBASE_MM,
-     "y": _HALF_TRACK_MM, "direction": -1},
-    {"name": "right_front", "motor_id": 2, "x": _HALF_WHEELBASE_MM,
-     "y": -_HALF_TRACK_MM, "direction": 1},
-    {"name": "left_rear", "motor_id": 3, "x": -_HALF_WHEELBASE_MM,
-     "y": _HALF_TRACK_MM, "direction": -1},
-    {"name": "right_rear", "motor_id": 4, "x": -_HALF_WHEELBASE_MM,
-     "y": -_HALF_TRACK_MM, "direction": 1},
+    {
+        "name": "left_front",
+        "motor_id": 1,
+        "x": _HALF_WHEELBASE_MM,
+        "y": _HALF_TRACK_MM,
+        "direction": -1,
+    },
+    {
+        "name": "right_front",
+        "motor_id": 2,
+        "x": _HALF_WHEELBASE_MM,
+        "y": -_HALF_TRACK_MM,
+        "direction": 1,
+    },
+    {
+        "name": "left_rear",
+        "motor_id": 3,
+        "x": -_HALF_WHEELBASE_MM,
+        "y": _HALF_TRACK_MM,
+        "direction": -1,
+    },
+    {
+        "name": "right_rear",
+        "motor_id": 4,
+        "x": -_HALF_WHEELBASE_MM,
+        "y": -_HALF_TRACK_MM,
+        "direction": 1,
+    },
 )
 
 
@@ -85,13 +105,23 @@ class LunarRover:
     def _set_steering_angles_cached(self, angles, speed_deg_s):
         angles = tuple(float(angle) for angle in angles)
         speed_deg_s = float(speed_deg_s)
-        if (self._same_tuple(angles, self._last_steering_angles, _STEER_CMD_EPS_DEG)
-                and self._same_float(speed_deg_s, self._last_steering_speed_deg_s, 0.01)):
+        if (
+            self._same_tuple(angles, self._last_steering_angles, _STEER_CMD_EPS_DEG)
+            and self._same_float(
+                speed_deg_s,
+                self._last_steering_speed_deg_s,
+                0.01,
+            )
+        ):
             return False
 
         self.servo_control.set_steering_angles(
-            angles[0], angles[1], angles[2],
-            angles[3], angles[4], angles[5],
+            angles[0],
+            angles[1],
+            angles[2],
+            angles[3],
+            angles[4],
+            angles[5],
             speed_deg_s=speed_deg_s,
         )
         self._last_steering_angles = angles
@@ -117,7 +147,7 @@ class LunarRover:
     def prepare(self):
         self.center_chassis_servos()
         if self.arm is not None:
-           # self.arm.apply_initial_pose()
+            # self.arm.apply_initial_pose()
             time.sleep_ms(120)
         self.enable_motors()
 
@@ -158,8 +188,12 @@ class LunarRover:
         if sent:
             time.sleep_ms(20)
 
-    def drive(self, speed_rad_s, steer_angle_deg,
-              steer_speed_deg_s=_STEER_SERVO_SPEED_DEG_S):
+    def drive(
+        self,
+        speed_rad_s,
+        steer_angle_deg,
+        steer_speed_deg_s=_STEER_SERVO_SPEED_DEG_S,
+    ):
         """
         speed_rad_s：期望车轮角速度，单位 rad/s，正数前进，负数后退。
         steer_angle_deg：期望底盘转向角，单位 deg。
@@ -173,8 +207,12 @@ class LunarRover:
 
         self._set_steering_angles_cached(
             (
-                steer_angle, steer_angle, steer_angle,
-                steer_angle, steer_angle, steer_angle,
+                steer_angle,
+                steer_angle,
+                steer_angle,
+                steer_angle,
+                steer_angle,
+                steer_angle,
             ),
             steer_speed_deg_s,
         )
@@ -186,8 +224,11 @@ class LunarRover:
             self._set_motor_speed_cached(motor_id, speed)
         self._motors_stopped = abs(motor_speed) < 0.01
 
-    def pivot_turn(self, speed_rad_s,
-                   steer_speed_deg_s=_STEER_SERVO_SPEED_DEG_S):
+    def pivot_turn(
+        self,
+        speed_rad_s,
+        steer_speed_deg_s=_STEER_SERVO_SPEED_DEG_S,
+    ):
         """
         原地转向：speed_rad_s 为原地转向轮速，负数左转，正数右转。
         """

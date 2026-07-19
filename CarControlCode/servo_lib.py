@@ -138,11 +138,15 @@ class ServoBus:
     def __init__(self, uart):
         self.uart = uart
 
-    def _angle_speed_content(self, servo_id, angle_deg,
-                             speed_deg_s=_SERVO_DEFAULT_SPEED_DEG_S,
-                             accel_ms=_SERVO_ACCEL_TIME_MS,
-                             decel_ms=_SERVO_DECEL_TIME_MS,
-                             power=0):
+    def _angle_speed_content(
+        self,
+        servo_id,
+        angle_deg,
+        speed_deg_s=_SERVO_DEFAULT_SPEED_DEG_S,
+        accel_ms=_SERVO_ACCEL_TIME_MS,
+        decel_ms=_SERVO_DECEL_TIME_MS,
+        power=0,
+    ):
         angle_deg = clamp(float(angle_deg), -180.0, 180.0)
         position = int(round(angle_deg * 10.0))
         speed = int(round(abs(float(speed_deg_s)) * 10.0))
@@ -158,11 +162,15 @@ class ServoBus:
         content.extend(ustruct.pack("<H", clamp(int(power), 0, 65535)))
         return content
 
-    def set_angle(self, servo_id, angle_deg,
-                  speed_deg_s=_SERVO_DEFAULT_SPEED_DEG_S,
-                  accel_ms=_SERVO_ACCEL_TIME_MS,
-                  decel_ms=_SERVO_DECEL_TIME_MS,
-                  power=0):
+    def set_angle(
+        self,
+        servo_id,
+        angle_deg,
+        speed_deg_s=_SERVO_DEFAULT_SPEED_DEG_S,
+        accel_ms=_SERVO_ACCEL_TIME_MS,
+        decel_ms=_SERVO_DECEL_TIME_MS,
+        power=0,
+    ):
         self.set_angles(
             ((servo_id, angle_deg),),
             speed_deg_s=speed_deg_s,
@@ -171,11 +179,14 @@ class ServoBus:
             power=power,
         )
 
-    def set_angles(self, targets,
-                   speed_deg_s=_SERVO_DEFAULT_SPEED_DEG_S,
-                   accel_ms=_SERVO_ACCEL_TIME_MS,
-                   decel_ms=_SERVO_DECEL_TIME_MS,
-                   power=0):
+    def set_angles(
+        self,
+        targets,
+        speed_deg_s=_SERVO_DEFAULT_SPEED_DEG_S,
+        accel_ms=_SERVO_ACCEL_TIME_MS,
+        decel_ms=_SERVO_DECEL_TIME_MS,
+        power=0,
+    ):
         items = list(targets)
         if not items:
             return
