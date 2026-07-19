@@ -25,6 +25,13 @@ uart0_thread.start()
 
 
 xunhuan_num = 0
+VALID_TASK_COLORS = ("red", "pink", "blue", "purple", "yellow")
+task_loaded = False
+task_raw = ""
+task_colors = []
+task_counts = []
+grab_task = []
+
 # 屏幕中心捕获框：30x30，真正以 (320, 240) 为中心。
 TARGET_LEFT = 305
 TARGET_TOP = 225
@@ -63,6 +70,34 @@ def axis_gap(blob_low, blob_high, target_low, target_high):
     return 0
 
 
+def parse_qrcode_task(payload):
+    """解析二维码任务，格式为：颜色1 颜色2 颜色3 数量1 数量2 数量3。"""
+    parts = str(payload).strip().split()
+    if len(parts) != 6:
+        return None
+
+    colors = [item.lower() for item in parts[:3]]
+    counts_text = parts[3:]
+    for color in colors:
+        if color not in VALID_TASK_COLORS:
+            return None
+
+    try:
+        counts = [int(item) for item in counts_text]
+    except ValueError:
+        return None
+
+    task = []
+    for color, count in zip(colors, counts):
+        task.append(
+            {
+                "color": color,
+                "count": count,
+            }
+        )
+    return colors, counts, task
+
+
 thresholds_red = [[14, 51, 33, 70, 13, 43]]
 thresholds_pink = [[36, 88, 10, 43, -16, 10]]
 thresholds_blue = [[10, 68, -11, 16, -71, -13]]
@@ -76,7 +111,33 @@ disp = display.Display()
 while not app.need_exit():
     img = cam.read()
 
-    if xunhuan_num >= 1:  # 60 帧判断一次。
+    if not task_loaded:
+        qrcodes = img.find_qrcodes()
+        for qr in qrcodes:
+            corners = qr.corners()
+            for i in range(4):
+                img.draw_line(
+                    corners[i][0],
+                    corners[i][1],
+                    corners[(i + 1) % 4][0],
+                    corners[(i + 1) % 4][1],
+                    image.COLOR_RED,
+                )
+            img.draw_string(qr.x(), qr.y() - 15, qr.payload(), image.COLOR_RED)
+
+            task_info = parse_qrcode_task(qr.payload())
+            if task_info is None:
+                print("二维码任务格式错误:", qr.payload())
+                continue
+
+            task_raw = qr.payload()
+            task_colors, task_counts, grab_task = task_info
+            task_loaded = True
+            print("二维码任务:", task_raw)
+            print("抓取任务:", grab_task)
+            break
+
+    if task_loaded and xunhuan_num >= 1:
         blobs = img.find_blobs(thresholds_red, pixels_threshold=1500)
         if blobs != []:
             # 多个红色区域同时出现时只跟踪面积最大的一个，避免指令来回切换。
@@ -132,20 +193,7 @@ while not app.need_exit():
             )
             u_data = f"sx{delta_x:04d}{delta_y:04d}"
             serial.write_str(u_data)
-
-    #    blobs = img.find_blobs(thresholds_green, pixels_threshold=10)
-    #    if blobs != []:
-    #        for blob in blobs:
-    #           print("blue")
-    #           print(blob[0], blob[1], blob[2], blob[3], blob[5], blob[6])
-    #           img.draw_rect(blob[0], blob[1], blob[2], blob[3], image.COLOR_GREEN, 5)
-
-    #    blobs = img.find_blobs(thresholds_black, pixels_threshold=1000)
-    #    if blobs != []:
-    #        for blob in blobs:
-    #            print("black")
-    #            print(blob[0], blob[1], blob[2], blob[3], blob[5], blob[6])
-    #            img.draw_rect(blob[0], blob[1], blob[2], blob[3], image.COLOR_BLACK, 5)
+            
         xunhuan_num = 0
 
     img.draw_rect(
