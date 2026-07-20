@@ -16,7 +16,7 @@ def clamp(value, low, high):
 # 硬件端口与运行模式
 # =============================================================================
 
-RUN_MODE = "idle"  # 可选值："idle" | "ps2"
+RUN_MODE = "idle"  # 可选值："idle" | "ps2" | "line_follow"
 
 # UART 接线。
 SERVO_UART_ID = 2
@@ -52,6 +52,13 @@ DEFAULT_ACC_RAD_S2 = 20.0  # 电机加速度，单位 rad/s^2。
 
 MAX_STEER_ANGLE_DEG = 90.0  # 最大转向角度。
 PIVOT_SPEED_SCALE = 0.3  # 原地转向速度比例，v_pivot_max = v_max * PIVOT_SPEED_SCALE。
+
+# 巡线配置。
+# 视觉端发送格式：ln <dx> <area>，dx 为线中心相对画面中心的水平偏差，单位 px。
+LINE_FOLLOW_BASE_SPEED_RAD_S = 0.8
+LINE_FOLLOW_MAX_STEER_DEG = 35.0
+LINE_FOLLOW_STEER_KP = 0.12
+LINE_FOLLOW_DATA_TIMEOUT_MS = 500
 
 
 # =============================================================================

@@ -45,6 +45,10 @@ from robot_config import (
     CAMERA_UART_TX,
     CAMERA_SERVO_ID,
     DEFAULT_ACC_RAD_S2,
+    LINE_FOLLOW_BASE_SPEED_RAD_S,
+    LINE_FOLLOW_DATA_TIMEOUT_MS,
+    LINE_FOLLOW_MAX_STEER_DEG,
+    LINE_FOLLOW_STEER_KP,
     PS2_CLK,
     PS2_CS,
     PS2_DI,
@@ -119,6 +123,36 @@ def parse_camera_offset(raw_data):
     return delta_x, delta_y
 
 
+def parse_line_follow_frame(raw_data):
+    """解析巡线视觉数据：ln <dx> <area> 或 ln lost。"""
+    if raw_data is None:
+        return None
+    if isinstance(raw_data, bytes):
+        raw_data = raw_data.decode("utf-8", "replace")
+
+    parts = str(raw_data).strip().split()
+    if len(parts) < 2 or parts[0] != "ln":
+        return None
+    if parts[1].lower() == "lost":
+        return {
+            "lost": True,
+            "dx": 0,
+            "area": 0,
+        }
+
+    try:
+        dx = int(parts[1])
+        area = int(parts[2]) if len(parts) >= 3 else 0
+    except ValueError:
+        return None
+
+    return {
+        "lost": False,
+        "dx": dx,
+        "area": area,
+    }
+
+
 def track_camera_target(rover, delta_x, delta_y):
     """将画面偏差转换为底盘的二维移动命令。"""
     delta_x = int(delta_x)
@@ -158,6 +192,17 @@ def track_camera_target(rover, delta_x, delta_y):
 
     rover.drive(speed_rad_s, steer_angle_deg)
     return speed_rad_s, steer_angle_deg
+
+
+def follow_line_target(rover, line_dx):
+    """将巡线水平偏差转换为前进和转向命令。"""
+    steer_angle_deg = clamp(
+        int(line_dx) * LINE_FOLLOW_STEER_KP,
+        -LINE_FOLLOW_MAX_STEER_DEG,
+        LINE_FOLLOW_MAX_STEER_DEG,
+    )
+    rover.drive(LINE_FOLLOW_BASE_SPEED_RAD_S, steer_angle_deg)
+    return LINE_FOLLOW_BASE_SPEED_RAD_S, steer_angle_deg
 
 
 def parse_qrcode_task(payload):
@@ -317,6 +362,12 @@ def main():
             finally:
                 ps2.stop()
                 rover.disable()
+            return
+
+        if RUN_MODE == "line_follow":
+            rover.prepare()
+            print("RUN_MODE=line_follow，等待视觉端巡线数据。")
+            line_follow_loop()
             return
 
         rover.prepare()  # 初始化底盘并使能电机。
@@ -519,6 +570,54 @@ def main():
             camera_motion_active = False
 
         time.sleep_ms(100)
+
+
+def line_follow_loop():
+    global camera_data
+    last_line_data_ms = time.ticks_ms()
+    line_motion_active = False
+
+    while True:
+        if camera_data["value"] is not None:
+            raw_data = camera_data["value"]
+            camera_data["value"] = None
+            if isinstance(raw_data, bytes):
+                raw_data = raw_data.decode("utf-8", "replace")
+
+            frames = str(raw_data).strip().splitlines()
+            for frame in frames:
+                frame = frame.strip()
+                if frame == "":
+                    continue
+
+                line_info = parse_line_follow_frame(frame)
+                if line_info is None:
+                    print("非巡线视觉数据，已忽略:", frame)
+                    continue
+
+                last_line_data_ms = time.ticks_ms()
+                if line_info["lost"]:
+                    rover.stop()
+                    line_motion_active = False
+                    print("巡线丢失，已停车")
+                    continue
+
+                speed, steer = follow_line_target(rover, line_info["dx"])
+                line_motion_active = True
+                print(
+                    "巡线: dx=%d, area=%d, speed=%.2f rad/s, steer=%.1f deg"
+                    % (line_info["dx"], line_info["area"], speed, steer)
+                )
+        elif (
+            line_motion_active
+            and time.ticks_diff(time.ticks_ms(), last_line_data_ms)
+            > LINE_FOLLOW_DATA_TIMEOUT_MS
+        ):
+            print("巡线视觉数据超时，已停车")
+            rover.stop()
+            line_motion_active = False
+
+        time.sleep_ms(50)
 
 
 if __name__ == "__main__":
