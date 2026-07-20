@@ -16,7 +16,7 @@ def clamp(value, low, high):
 # 硬件端口与运行模式
 # =============================================================================
 
-RUN_MODE = "idle"  # 可选值："idle" | "ps2"
+RUN_MODE = "ps2"  # 可选值："idle" | "ps2"
 
 # UART 接线。
 SERVO_UART_ID = 2
@@ -74,7 +74,7 @@ STEER_ANGLE_MIN_DEG = -90.0  # 转向舵机。
 STEER_ANGLE_MAX_DEG = 90.0
 CAMERA_ANGLE_MIN_DEG = -90.0  # 相机舵机。
 CAMERA_ANGLE_MAX_DEG = 0.0
-CAMERA_INIT_ANGLE_DEG = -75.0  # 相机上电复位角度，同时作为点动控制的初始状态。
+CAMERA_INIT_ANGLE_DEG = -77.5  # 相机上电复位角度，同时作为点动控制的初始状态。
 ARM_ROLL_MIN_DEG = -180.0  # 机械臂 Roll 舵机。
 ARM_ROLL_MAX_DEG = 180.0
 ARM_PITCH1_MIN_DEG = -90.0  # 机械臂 Pitch1 舵机。
