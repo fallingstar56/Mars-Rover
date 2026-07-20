@@ -17,7 +17,7 @@ def re_uart(serial):
             print(f"uart0:{data}")
             stuts = data
             data = ""
-
+        time.sleep(0.01)
 
 uart0_thread = threading.Thread(target=re_uart, args=(serial,))
 uart0_thread.daemon = True

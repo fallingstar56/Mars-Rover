@@ -18,6 +18,7 @@ from robot_config import (
     ARM_GRAB_PITCH2_DEG,
     ARM_PLACE_PITCH1_DEG,
     ARM_PLACE_PITCH2_DEG,
+    CAMERA_INIT_ANGLE_DEG,
     MAX_MOTOR_RPM,
     MAX_STEER_ANGLE_DEG,
     PIVOT_SPEED_SCALE,
@@ -224,12 +225,19 @@ def execute_grab_place_task(rover, color):
         return False
 
     try:
+        rover.servo_control.set_camera_angle(0.0)
+        if rover.arm is not None:
+            rover.arm.camera_angle_deg = 0.0
+        sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
         rover.arm.move_pitch12(ARM_GRAB_PITCH1_DEG, ARM_GRAB_PITCH2_DEG)
         sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
         run_gripper_grab(rover)
         rover.arm.move_pitch12(ARM_PLACE_PITCH1_DEG, ARM_PLACE_PITCH2_DEG)
         sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
         rover.arm.apply_initial_pose()
+        rover.servo_control.set_camera_angle(CAMERA_INIT_ANGLE_DEG)
+        if rover.arm is not None:
+            rover.arm.camera_angle_deg = CAMERA_INIT_ANGLE_DEG
         sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
     except ArmKinematicsError as err:
         print_arm_error(err)
