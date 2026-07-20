@@ -101,6 +101,20 @@ class RobotArm:
             speed_deg_s=speed_deg_s,
         )
 
+    def move_pitch12(
+        self,
+        target_pitch1_deg,
+        target_pitch2_deg,
+        speed_deg_s=ARM_SERVO_SPEED_DEG_S,
+    ):
+        return self._move_to_joint_pose(
+            self.roll_deg,
+            target_pitch1_deg,
+            target_pitch2_deg,
+            self.pitch3_deg,
+            speed_deg_s=speed_deg_s,
+        )
+
     def jog_joints(
         self,
         roll_delta_deg=0.0,
