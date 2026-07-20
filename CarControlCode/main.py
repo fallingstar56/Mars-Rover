@@ -24,11 +24,16 @@ from machine import UART
 from esp32 import CAN
 
 from chassis_control import LunarRover
-from arm_control import RobotArm
+from arm_control import ArmKinematicsError, RobotArm
 from motor_lib import MotorBus
 from ps2_control import ps2_loop
 from ps2_lib import PS2Controller, PS2Receiver
 from robot_config import (
+    ARM_AUTO_ACTION_DELAY_MS,
+    ARM_GRAB_PITCH1_DEG,
+    ARM_GRAB_PITCH2_DEG,
+    ARM_PLACE_PITCH1_DEG,
+    ARM_PLACE_PITCH2_DEG,
     CAN_BAUDRATE,
     CAN_BUS_ID,
     CAN_RX,
@@ -70,6 +75,7 @@ CAMERA_TRACK_MIN_SPEED_RAD_S = 0.15
 CAMERA_TRACK_NEAR_GAP_PX = 60
 CAMERA_TRACK_NEAR_MAX_SPEED_RAD_S = 0.35
 CAMERA_DATA_TIMEOUT_MS = 500
+VALID_TASK_COLORS = ("red", "pink", "blue", "purple", "yellow")
 
 
 def clamp(value, low, high):
@@ -152,6 +158,70 @@ def track_camera_target(rover, delta_x, delta_y):
 
     rover.drive(speed_rad_s, steer_angle_deg)
     return speed_rad_s, steer_angle_deg
+
+
+def parse_qrcode_task(payload):
+    """解析二维码任务，返回按数量展开后的抓取颜色队列。"""
+    parts = str(payload).strip().split()
+    if len(parts) != 6:
+        return None
+
+    colors = [item.lower() for item in parts[:3]]
+    counts_text = parts[3:]
+    for color in colors:
+        if color not in VALID_TASK_COLORS:
+            return None
+
+    try:
+        counts = [int(item) for item in counts_text]
+    except ValueError:
+        return None
+
+    task_queue = []
+    for color, count in zip(colors, counts):
+        if count < 0:
+            return None
+        for _ in range(count):
+            task_queue.append(color)
+    return task_queue
+
+
+def run_gripper_grab(rover):
+    """夹爪抓取动作占位。后续在这里补充夹爪舵机/电机控制。"""
+    pass
+
+
+def execute_grab_place_task(rover, color):
+    """执行单个方块的抓取、放置和复位流程。"""
+    rover.stop()
+    if rover.arm is None:
+        print("机械臂未初始化，无法抓取 %s 方块。" % color)
+        return False
+
+    try:
+        rover.servo_control.set_camera_angle(0.0)
+        rover.arm.camera_angle_deg = 0.0
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+        rover.arm.move_pitch12(ARM_GRAB_PITCH1_DEG, ARM_GRAB_PITCH2_DEG)
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+        run_gripper_grab(rover)
+        rover.arm.move_pitch12(ARM_PLACE_PITCH1_DEG, ARM_PLACE_PITCH2_DEG)
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+        rover.arm.apply_initial_pose()
+        rover.servo_control.set_camera_angle(CAMERA_INIT_ANGLE_DEG)
+        rover.arm.camera_angle_deg = CAMERA_INIT_ANGLE_DEG
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+    except ArmKinematicsError as err:
+        print("机械臂目标无效：%s，%s" % (err.reason, err.message))
+        return False
+    return True
+
+
+def send_camera_command(serial, command):
+    try:
+        serial.write(command)
+    except TypeError:
+        serial.write(command.encode("utf-8"))
 
 # 硬件配置与初始化。
 # 舵机。
@@ -379,26 +449,66 @@ def main():
 
     last_camera_data_ms = time.ticks_ms()
     camera_motion_active = False
+    grab_queue = []
+    current_grab_color = None
     while True:
         if camera_data["value"] is not None:
             raw_data = camera_data["value"]
             camera_data["value"] = None
+            if isinstance(raw_data, bytes):
+                raw_data = raw_data.decode("utf-8", "replace")
             print(raw_data)
 
-            offset = parse_camera_offset(raw_data)
-            if offset is None:
-                print("视觉数据格式错误，已停车:", raw_data)
-                rover.stop()
+            frames = str(raw_data).strip().splitlines()
+            for frame in frames:
+                frame = frame.strip()
+                if frame == "":
+                    continue
+
+                if frame.startswith("sx"):
+                    offset = parse_camera_offset(frame)
+                    if offset is None:
+                        print("视觉偏差格式错误，已忽略:", frame)
+                        continue
+                    if current_grab_color is None and grab_queue:
+                        current_grab_color = grab_queue[0]
+                        print("当前抓取目标:", current_grab_color)
+                    if current_grab_color is None:
+                        rover.stop()
+                        camera_motion_active = False
+                        continue
+
+                    delta_x, delta_y = offset
+                    speed, steer = track_camera_target(rover, delta_x, delta_y)
+                    last_camera_data_ms = time.ticks_ms()
+                    camera_motion_active = speed != 0.0
+                    print(
+                        "视觉跟踪 %s: dx=%d, dy=%d, speed=%.2f rad/s, steer=%.1f deg"
+                        % (current_grab_color, delta_x, delta_y, speed, steer)
+                    )
+                    if delta_x == 0 and delta_y == 0:
+                        camera_motion_active = False
+                        if execute_grab_place_task(rover, current_grab_color):
+                            finished = grab_queue.pop(0)
+                            print("完成抓取:", finished)
+                            current_grab_color = grab_queue[0] if grab_queue else None
+                            send_camera_command(camera_uart, "next\n")
+                            if current_grab_color is None:
+                                print("二维码抓取任务全部完成。")
+                        else:
+                            rover.stop()
+                    continue
+
+                parsed_task = parse_qrcode_task(frame)
+                if parsed_task is None:
+                    print("串口数据无法识别，已忽略:", frame)
+                    continue
+
+                grab_queue = parsed_task
+                current_grab_color = grab_queue[0] if grab_queue else None
                 camera_motion_active = False
-            else:
-                delta_x, delta_y = offset
-                speed, steer = track_camera_target(rover, delta_x, delta_y)
-                last_camera_data_ms = time.ticks_ms()
-                camera_motion_active = speed != 0.0
-                print(
-                    "视觉跟踪: dx=%d, dy=%d, speed=%.2f rad/s, steer=%.1f deg"
-                    % (delta_x, delta_y, speed, steer)
-                )
+                send_camera_command(camera_uart, "ok\n")
+                print("二维码任务加载完成，抓取队列:", grab_queue)
         elif (
             camera_motion_active
             and time.ticks_diff(time.ticks_ms(), last_camera_data_ms)

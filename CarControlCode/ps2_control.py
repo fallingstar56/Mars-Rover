@@ -13,12 +13,6 @@ import time
 
 from arm_control import ArmKinematicsError
 from robot_config import (
-    ARM_AUTO_ACTION_DELAY_MS,
-    ARM_GRAB_PITCH1_DEG,
-    ARM_GRAB_PITCH2_DEG,
-    ARM_PLACE_PITCH1_DEG,
-    ARM_PLACE_PITCH2_DEG,
-    CAMERA_INIT_ANGLE_DEG,
     MAX_MOTOR_RPM,
     MAX_STEER_ANGLE_DEG,
     PIVOT_SPEED_SCALE,
@@ -29,13 +23,6 @@ _MAX_MOTOR_RAD_S = MAX_MOTOR_RPM * 2.0 * math.pi / 60.0
 _MAX_PIVOT_RAD_S = _MAX_MOTOR_RAD_S * PIVOT_SPEED_SCALE
 _ARM_JOG_COMMAND_DELAY_MS = 50
 _ARM_JOG_STEP_DEG = 8
-_VALID_TASK_COLORS = ("red", "pink", "blue", "purple", "yellow")
-_CAMERA_X_HALF_SIZE = 320.0
-_CAMERA_Y_HALF_SIZE = 240.0
-_CAMERA_TRACK_MAX_SPEED_RAD_S = 3.0
-_CAMERA_TRACK_MIN_SPEED_RAD_S = 0.15
-_CAMERA_TRACK_NEAR_GAP_PX = 60
-_CAMERA_TRACK_NEAR_MAX_SPEED_RAD_S = 0.35
 _last_arm_error_key = None
 _last_arm_error_ms = 0
 
@@ -97,13 +84,6 @@ def ticks_diff(a, b):
     return a - b
 
 
-def sleep_ms(ms):
-    if hasattr(time, "sleep_ms"):
-        time.sleep_ms(ms)
-    else:
-        time.sleep(ms / 1000.0)
-
-
 def print_arm_error(err):
     # 打印机械臂错误，并进行防刷屏处理：1 秒内相同错误只报一次。
     global _last_arm_error_key, _last_arm_error_ms
@@ -126,130 +106,6 @@ def sync_arm_control_state(rover):
         print_arm_error(err)
         return False
     return True
-
-
-def parse_qrcode_task(payload):
-    """解析二维码任务，返回按数量展开后的抓取颜色队列。"""
-    parts = str(payload).strip().split()
-    if len(parts) != 6:
-        return None
-
-    colors = [item.lower() for item in parts[:3]]
-    counts_text = parts[3:]
-    for color in colors:
-        if color not in _VALID_TASK_COLORS:
-            return None
-
-    try:
-        counts = [int(item) for item in counts_text]
-    except ValueError:
-        return None
-
-    task_queue = []
-    for color, count in zip(colors, counts):
-        if count < 0:
-            return None
-        for _ in range(count):
-            task_queue.append(color)
-    return task_queue
-
-
-def parse_camera_offset(raw_data):
-    """解析视觉端 sx 定宽偏差数据。"""
-    text = str(raw_data).strip()
-    start = text.rfind("sx")
-    if start < 0:
-        return None
-
-    payload = text[start + 2:]
-    for separator in ("\r", "\n", " ", "\t"):
-        if separator in payload:
-            payload = payload.split(separator, 1)[0]
-
-    try:
-        if len(payload) >= 8:
-            delta_x = int(payload[0:4])
-            delta_y = int(payload[4:8])
-        elif len(payload) >= 6:
-            delta_x = int(payload[0:3])
-            delta_y = int(payload[3:6])
-        else:
-            return None
-    except ValueError:
-        return None
-    return delta_x, delta_y
-
-
-def track_camera_target(rover, delta_x, delta_y):
-    """将视觉偏差转换为底盘二维移动命令。"""
-    delta_x = int(delta_x)
-    delta_y = int(delta_y)
-
-    if delta_x == 0 and delta_y == 0:
-        rover.stop()
-        return 0.0, 0.0
-
-    lateral = -clamp(delta_x / _CAMERA_X_HALF_SIZE, -1.0, 1.0)
-    forward = clamp(delta_y / _CAMERA_Y_HALF_SIZE, -1.0, 1.0)
-    magnitude = clamp(math.sqrt(lateral * lateral + forward * forward), 0.0, 1.0)
-
-    steer_angle_deg = math.degrees(math.atan2(lateral, forward))
-    speed_rad_s = max(
-        _CAMERA_TRACK_MIN_SPEED_RAD_S,
-        magnitude * _CAMERA_TRACK_MAX_SPEED_RAD_S,
-    )
-    if max(abs(delta_x), abs(delta_y)) <= _CAMERA_TRACK_NEAR_GAP_PX:
-        speed_rad_s = min(speed_rad_s, _CAMERA_TRACK_NEAR_MAX_SPEED_RAD_S)
-
-    if steer_angle_deg > 90.0:
-        steer_angle_deg -= 180.0
-        speed_rad_s = -speed_rad_s
-    elif steer_angle_deg < -90.0:
-        steer_angle_deg += 180.0
-        speed_rad_s = -speed_rad_s
-
-    rover.drive(speed_rad_s, steer_angle_deg)
-    return speed_rad_s, steer_angle_deg
-
-
-def run_gripper_grab(rover):
-    """夹爪抓取动作占位。后续在这里补充夹爪舵机/电机控制。"""
-    pass
-
-
-def execute_grab_place_task(rover, color):
-    """执行单个方块的抓取、放置和复位流程。"""
-    rover.stop()
-    if rover.arm is None:
-        print("机械臂未初始化，无法抓取 %s 方块。" % color)
-        return False
-
-    try:
-        rover.servo_control.set_camera_angle(0.0)
-        if rover.arm is not None:
-            rover.arm.camera_angle_deg = 0.0
-        sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
-        rover.arm.move_pitch12(ARM_GRAB_PITCH1_DEG, ARM_GRAB_PITCH2_DEG)
-        sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
-        run_gripper_grab(rover)
-        rover.arm.move_pitch12(ARM_PLACE_PITCH1_DEG, ARM_PLACE_PITCH2_DEG)
-        sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
-        rover.arm.apply_initial_pose()
-        rover.servo_control.set_camera_angle(CAMERA_INIT_ANGLE_DEG)
-        if rover.arm is not None:
-            rover.arm.camera_angle_deg = CAMERA_INIT_ANGLE_DEG
-        sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
-    except ArmKinematicsError as err:
-        print_arm_error(err)
-        return False
-    return True
-
-
-def send_camera_command(serial, command):
-    try:
-        serial.write(command)
-    except TypeError:
-        serial.write(command.encode("utf-8"))
 
 
 # ==============================================================================
@@ -348,62 +204,10 @@ def ps2_loop(rover, ps2, data, serial):
         "右摇杆左右控制Roll。"
     )
     arm_mode_active = False
-    grab_queue = []
-    current_grab_color = None
 
     while True:
         # 触发底层更新：要求底层库发起一次 SPI 通信，读取手柄当前状态。
         ps2.update()
-        serial_data = data["value"]
-        if serial_data is not None:
-            if isinstance(serial_data, bytes):
-                serial_data = serial_data.decode("utf-8", "replace")
-            frames = str(serial_data).strip().splitlines()
-            for frame in frames:
-                frame = frame.strip()
-                if frame == "":
-                    continue
-
-                if frame.startswith("sx"):
-                    offset = parse_camera_offset(frame)
-                    if offset is None:
-                        print("视觉偏差格式错误，已忽略:", frame)
-                        continue
-                    if current_grab_color is None and grab_queue:
-                        current_grab_color = grab_queue[0]
-                        print("当前抓取目标:", current_grab_color)
-                    if current_grab_color is None:
-                        rover.stop()
-                        continue
-
-                    delta_x, delta_y = offset
-                    speed, steer = track_camera_target(rover, delta_x, delta_y)
-                    print(
-                        "视觉跟踪 %s: dx=%d, dy=%d, speed=%.2f, steer=%.1f"
-                        % (current_grab_color, delta_x, delta_y, speed, steer)
-                    )
-                    if delta_x == 0 and delta_y == 0:
-                        if execute_grab_place_task(rover, current_grab_color):
-                            finished = grab_queue.pop(0)
-                            print("完成抓取:", finished)
-                            current_grab_color = grab_queue[0] if grab_queue else None
-                            send_camera_command(serial, "next\n")
-                            if current_grab_color is None:
-                                print("二维码抓取任务全部完成。")
-                        else:
-                            rover.stop()
-                    continue
-
-                parsed_task = parse_qrcode_task(frame)
-                if parsed_task is None:
-                    print("串口数据无法识别，已忽略:", frame)
-                    continue
-
-                grab_queue = parsed_task
-                current_grab_color = grab_queue[0] if grab_queue else None
-                send_camera_command(serial, "ok\n")
-                print("二维码任务加载完成，抓取队列:", grab_queue)
-            data["value"] = None
         # 获取摇杆信息的关键快照。
         # snapshot() 返回一个包含当前帧所有手柄原始数据的元组
         # fresh: 数据是否有效/最新 (布尔值)
