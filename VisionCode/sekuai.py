@@ -44,9 +44,6 @@ TARGET_RIGHT = TARGET_LEFT + TARGET_WIDTH
 TARGET_BOTTOM = TARGET_TOP + TARGET_HEIGHT
 TARGET_CENTER_X = TARGET_LEFT + TARGET_WIDTH / 2
 TARGET_AXIS_TOLERANCE_PX = 1
-TARGET_STOP_Y_INSET_PX = 15
-TARGET_STOP_TOP = TARGET_TOP + TARGET_STOP_Y_INSET_PX
-TARGET_STOP_BOTTOM = TARGET_BOTTOM - TARGET_STOP_Y_INSET_PX
 # 第一次发生真实重叠后锁存完成状态，本轮任务不再重新启动。
 target_reached = False
 
@@ -61,12 +58,12 @@ def rects_overlap(
     right2,
     bottom2,
 ):
-    """X 方向要求竖直对称轴重合，Y 方向只要求投影有重叠。"""
+    """X 方向要求竖直对称轴重合，Y 方向要求目标框被识别框覆盖。"""
     center1_x = (left1 + right1) / 2
     center2_x = (left2 + right2) / 2
     x_axis_aligned = abs(center1_x - center2_x) <= TARGET_AXIS_TOLERANCE_PX
-    y_overlapped = not (bottom1 < top2 or top1 > bottom2)
-    return x_axis_aligned and y_overlapped
+    y_target_covered = top1 <= top2 and bottom1 >= bottom2
+    return x_axis_aligned and y_target_covered
 
 
 def axis_gap(blob_low, blob_high, target_low, target_high):
@@ -219,9 +216,9 @@ while not app.need_exit():
                 blob_right,
                 blob_bottom,
                 TARGET_LEFT,
-                TARGET_STOP_TOP,
+                TARGET_TOP,
                 TARGET_RIGHT,
-                TARGET_STOP_BOTTOM,
+                TARGET_BOTTOM,
             )
             if overlaps_target:
                 target_reached = True
