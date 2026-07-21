@@ -16,7 +16,7 @@ def clamp(value, low, high):
 # 硬件端口与运行模式
 # =============================================================================
 
-RUN_MODE = "debug"  # 可选值："idle" | "ps2" | "line_follow" | "debug"
+RUN_MODE = "idle"  # 可选值："idle" | "ps2" | "line_follow" | "debug"
 
 # UART 接线。
 SERVO_UART_ID = 2
@@ -112,9 +112,10 @@ ARM_INIT_PITCH3_DEG = 0.0
 # 自动抓取任务姿态配置。
 # 下面角度是直接下发给舵机的绝对目标角，不再叠加初始角。
 ARM_GRAB_PITCH1_DEG = -65.0
-ARM_GRAB_PITCH2_DEG = -100
+ARM_GRAB_PITCH2_DEG = -110.0
 ARM_PLACE_PITCH1_DEG = -15.0
-ARM_PLACE_PITCH2_DEG = 125.0
-ARM_AUTO_PITCH3_DEG = 0.0
+ARM_PLACE_PITCH2_DEG = 130.0
+ARM_GRAB_PITCH3_DEG = 0.0
+ARM_PLACE_PITCH3_DEG = -10.0
 ARM_AUTO_ACTION_DELAY_MS = 2000
 

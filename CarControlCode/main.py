@@ -30,15 +30,16 @@ from ps2_control import ps2_loop
 from ps2_lib import PS2Controller, PS2Receiver
 from robot_config import (
     ARM_AUTO_ACTION_DELAY_MS,
-    ARM_AUTO_PITCH3_DEG,
     ARM_GRAB_PITCH1_DEG,
     ARM_GRAB_PITCH2_DEG,
+    ARM_GRAB_PITCH3_DEG,
     ARM_INIT_PITCH1_DEG,
     ARM_INIT_PITCH2_DEG,
     ARM_INIT_PITCH3_DEG,
     ARM_INIT_ROLL_DEG,
     ARM_PLACE_PITCH1_DEG,
     ARM_PLACE_PITCH2_DEG,
+    ARM_PLACE_PITCH3_DEG,
     CAN_BAUDRATE,
     CAN_BUS_ID,
     CAN_RX,
@@ -275,7 +276,7 @@ def execute_grab_place_task(rover, color):
         rover.arm.move_pitch123(
             ARM_GRAB_PITCH1_DEG,
             ARM_GRAB_PITCH2_DEG,
-            ARM_AUTO_PITCH3_DEG,
+            ARM_GRAB_PITCH3_DEG,
         )
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
         if not run_gripper_grab(rover):
@@ -284,7 +285,7 @@ def execute_grab_place_task(rover, color):
         rover.arm.move_pitch123(
             ARM_PLACE_PITCH1_DEG,
             ARM_PLACE_PITCH2_DEG,
-            ARM_AUTO_PITCH3_DEG,
+            ARM_PLACE_PITCH3_DEG,
         )
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
         if not run_gripper_release(rover):

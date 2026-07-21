@@ -44,6 +44,9 @@ TARGET_RIGHT = TARGET_LEFT + TARGET_WIDTH
 TARGET_BOTTOM = TARGET_TOP + TARGET_HEIGHT
 TARGET_CENTER_X = TARGET_LEFT + TARGET_WIDTH / 2
 TARGET_AXIS_TOLERANCE_PX = 1
+TARGET_STOP_Y_INSET_PX = 5
+TARGET_STOP_TOP = TARGET_TOP + TARGET_STOP_Y_INSET_PX
+TARGET_STOP_BOTTOM = TARGET_BOTTOM - TARGET_STOP_Y_INSET_PX
 # 第一次发生真实重叠后锁存完成状态，本轮任务不再重新启动。
 target_reached = False
 
@@ -216,9 +219,9 @@ while not app.need_exit():
                 blob_right,
                 blob_bottom,
                 TARGET_LEFT,
-                TARGET_TOP,
+                TARGET_STOP_TOP,
                 TARGET_RIGHT,
-                TARGET_BOTTOM,
+                TARGET_STOP_BOTTOM,
             )
             if overlaps_target:
                 target_reached = True
