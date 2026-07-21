@@ -296,6 +296,53 @@ def execute_grab_place_task(rover, color):
     return True
 
 
+def arm_debug_loop():
+    rover.stop()
+    print("RUN_MODE=debug，已完成上电复位。")
+    print("输入格式：pitch1 pitch2，例如：-50 -110.6。输入 r 复位，q 退出。")
+
+    while True:
+        try:
+            line = input("pitch1 pitch2> ")
+        except EOFError:
+            print("输入结束，退出 debug 模式。")
+            rover.stop()
+            return
+
+        text = line.strip()
+        if text == "":
+            continue
+        command = text.lower()
+        if command in ("q", "quit", "exit"):
+            rover.stop()
+            print("退出 debug 模式。")
+            return
+        if command in ("r", "reset"):
+            reset_all_servos()
+            continue
+
+        parts = text.replace(",", " ").split()
+        if len(parts) != 2:
+            print("格式错误，请输入两个角度，例如：-50 -110.6")
+            continue
+
+        try:
+            pitch1 = float(parts[0])
+            pitch2 = float(parts[1])
+            result = rover.arm.move_pitch12(pitch1, pitch2)
+        except ValueError:
+            print("角度必须是数字。")
+            continue
+        except ArmKinematicsError as err:
+            print("机械臂目标无效：%s，%s" % (err.reason, err.message))
+            continue
+
+        print(
+            "已执行：Pitch1=%.2f deg, Pitch2=%.2f deg, Pitch3=%.2f deg"
+            % (result["pitch1_deg"], result["pitch2_deg"], result["pitch3_deg"])
+        )
+
+
 def send_camera_command(serial, command):
     try:
         serial.write(command)
@@ -382,6 +429,10 @@ _thread.start_new_thread(re_uart, (camera_uart,))
 def main():
     global camera_data  # 解析的串口数据。
     try:
+        if RUN_MODE == "debug":
+            arm_debug_loop()
+            return
+
         if RUN_MODE == "ps2":
             try:
                 rover.prepare()

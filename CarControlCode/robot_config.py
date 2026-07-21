@@ -16,7 +16,7 @@ def clamp(value, low, high):
 # 硬件端口与运行模式
 # =============================================================================
 
-RUN_MODE = "idle"  # 可选值："idle" | "ps2" | "line_follow"
+RUN_MODE = "idle"  # 可选值："idle" | "ps2" | "line_follow" | "debug"
 
 # UART 接线。
 SERVO_UART_ID = 2
