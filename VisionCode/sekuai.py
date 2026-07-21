@@ -44,7 +44,7 @@ TARGET_RIGHT = TARGET_LEFT + TARGET_WIDTH
 TARGET_BOTTOM = TARGET_TOP + TARGET_HEIGHT
 TARGET_CENTER_X = TARGET_LEFT + TARGET_WIDTH / 2
 TARGET_AXIS_TOLERANCE_PX = 1
-TARGET_STOP_Y_INSET_PX = 5
+TARGET_STOP_Y_INSET_PX = 15
 TARGET_STOP_TOP = TARGET_TOP + TARGET_STOP_Y_INSET_PX
 TARGET_STOP_BOTTOM = TARGET_BOTTOM - TARGET_STOP_Y_INSET_PX
 # 第一次发生真实重叠后锁存完成状态，本轮任务不再重新启动。
@@ -120,7 +120,7 @@ def parse_qrcode_task(payload):
     return colors, counts, task, queue
 
 
-thresholds_red = [[14, 51, 33, 70, 13, 43]]
+thresholds_red = [[0, 80, 0, 80, 10, 80]]
 thresholds_pink = [[36, 88, 10, 43, -16, 10]]
 thresholds_blue = [[10, 68, -11, 16, -71, -13]]
 thresholds_purple = [[-5, 39, 5, 50, -47, -3]]
