@@ -2,7 +2,7 @@ from maix import app, camera, display, image
 from maix import time, uart
 
 xunhuan_num = 0
-thresholds_red = [[0, 80, 40, 80, 10, 80]]  # Red.
+thresholds_red = [[14, 51, 33, 70, 13, 43]]
 thresholds_green = [[0, 60, 0, 127, -128, -35]]  # Green.
 thresholds_black = [[9, 29, -10, 10, -11, 9]]  # Black.
 

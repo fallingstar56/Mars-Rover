@@ -33,6 +33,10 @@ from robot_config import (
     ARM_AUTO_PITCH3_DEG,
     ARM_GRAB_PITCH1_DEG,
     ARM_GRAB_PITCH2_DEG,
+    ARM_INIT_PITCH1_DEG,
+    ARM_INIT_PITCH2_DEG,
+    ARM_INIT_PITCH3_DEG,
+    ARM_INIT_ROLL_DEG,
     ARM_PLACE_PITCH1_DEG,
     ARM_PLACE_PITCH2_DEG,
     CAN_BAUDRATE,
@@ -298,12 +302,14 @@ def execute_grab_place_task(rover, color):
 
 def arm_debug_loop():
     rover.stop()
+    current_gripper_angle = GRIPPER_OPEN_ANGLE_DEG
     print("RUN_MODE=debug，已完成上电复位。")
-    print("输入格式：pitch1 pitch2，例如：-50 -110.6。输入 r 复位，q 退出。")
+    print("输入格式：camera=<角度> pitch1=<角度> pitch2=<角度> pitch3=<角度> gripper=<角度>")
+    print("也可按顺序输入最多 5 个数：camera pitch1 pitch2 pitch3 gripper。输入 r 复位，q 退出。")
 
     while True:
         try:
-            line = input("pitch1 pitch2> ")
+            line = input("debug> ")
         except EOFError:
             print("输入结束，退出 debug 模式。")
             rover.stop()
@@ -319,27 +325,68 @@ def arm_debug_loop():
             return
         if command in ("r", "reset"):
             reset_all_servos()
+            rover.arm.roll_deg = ARM_INIT_ROLL_DEG
+            rover.arm.pitch1_deg = ARM_INIT_PITCH1_DEG
+            rover.arm.pitch2_deg = ARM_INIT_PITCH2_DEG
+            rover.arm.pitch3_deg = ARM_INIT_PITCH3_DEG
+            rover.arm.camera_angle_deg = CAMERA_INIT_ANGLE_DEG
+            current_gripper_angle = GRIPPER_OPEN_ANGLE_DEG
             continue
 
         parts = text.replace(",", " ").split()
-        if len(parts) != 2:
-            print("格式错误，请输入两个角度，例如：-50 -110.6")
+        values = {}
+        ordered_names = ("camera", "pitch1", "pitch2", "pitch3", "gripper")
+        try:
+            for index, part in enumerate(parts):
+                if "=" in part:
+                    name, value = part.split("=", 1)
+                    name = name.strip().lower()
+                    if name not in ordered_names:
+                        raise ValueError("unknown")
+                    values[name] = float(value)
+                else:
+                    if index >= len(ordered_names):
+                        raise ValueError("too_many")
+                    values[ordered_names[index]] = float(part)
+        except ValueError:
+            print("格式错误。示例：camera=0 pitch1=-50 pitch2=-110.6 pitch3=0 gripper=52.8")
             continue
 
         try:
-            pitch1 = float(parts[0])
-            pitch2 = float(parts[1])
-            result = rover.arm.move_pitch12(pitch1, pitch2)
-        except ValueError:
-            print("角度必须是数字。")
-            continue
+            if "camera" in values:
+                rover.servo_control.set_camera_angle(values["camera"])
+                rover.arm.camera_angle_deg = values["camera"]
+
+            target_pitch1 = values.get("pitch1", rover.arm.pitch1_deg)
+            target_pitch2 = values.get("pitch2", rover.arm.pitch2_deg)
+            target_pitch3 = values.get("pitch3", rover.arm.pitch3_deg)
+            result = rover.arm.move_pitch123(
+                target_pitch1,
+                target_pitch2,
+                target_pitch3,
+            )
+
+            if "gripper" in values:
+                if not rover.servo_control.set_reserve_servo_angle(
+                    GRIPPER_SERVO_ID,
+                    values["gripper"],
+                ):
+                    print("夹爪舵机未启用，无法设置夹爪角度。")
+                else:
+                    current_gripper_angle = values["gripper"]
         except ArmKinematicsError as err:
             print("机械臂目标无效：%s，%s" % (err.reason, err.message))
             continue
 
         print(
-            "已执行：Pitch1=%.2f deg, Pitch2=%.2f deg, Pitch3=%.2f deg"
-            % (result["pitch1_deg"], result["pitch2_deg"], result["pitch3_deg"])
+            "已执行：Camera=%.2f deg, Pitch1=%.2f deg, Pitch2=%.2f deg, Pitch3=%.2f deg, Gripper=%.2f deg"
+            % (
+                rover.arm.camera_angle_deg,
+                result["pitch1_deg"],
+                result["pitch2_deg"],
+                result["pitch3_deg"],
+                current_gripper_angle,
+            )
         )
 
 
