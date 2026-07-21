@@ -69,12 +69,17 @@ BASE_SERVO_IDS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)  # 基础舵机 ID，同调
 CAMERA_SERVO_ID = 8  # 相机舵机 ID，同调试软件配置结果，不要修改。
 
 # 预留舵机：未安装时保持 RESERVE_SERVO_ENABLED = False。
-RESERVE_SERVO_ENABLED = False  # 默认 False。
-RESERVE_SERVO_IDS = (14,)  # 可填多个 ID，如 (13, 14)。
-RESERVE_SERVO_SIGNS = {14: 1}  # 每个 ID 的方向符号，1 或 -1，如 {13: 1, 14: -1}。
-RESERVE_SERVO_INIT_ANGLE_DEG = {14: 0.0}  # 每个 ID 的初始角，如 {13: 0.0, 14: 10.0}。
-RESERVE_SERVO_MIN_DEG = {14: -90.0}  # 每个 ID 的下限，如 {13: -90.0, 14: 0.0}。
-RESERVE_SERVO_MAX_DEG = {14: 90.0}  # 每个 ID 的上限，如 {13: 90.0, 14: 45.0}。
+RESERVE_SERVO_ENABLED = True  # 默认 False。
+RESERVE_SERVO_IDS = (15,)  # 可填多个 ID，如 (13, 14)。
+RESERVE_SERVO_SIGNS = {15: 1}  # 每个 ID 的方向符号，1 或 -1，如 {13: 1, 14: -1}。
+RESERVE_SERVO_INIT_ANGLE_DEG = {15: 75}  # 每个 ID 的初始角，如 {13: 0.0, 14: 10.0}。
+RESERVE_SERVO_MIN_DEG = {15: 40}  # 每个 ID 的下限，如 {13: -90.0, 14: 0.0}。
+RESERVE_SERVO_MAX_DEG = {15: 90}  # 每个 ID 的上限，如 {13: 90.0, 14: 45.0}。
+
+# 夹爪舵机配置。
+GRIPPER_SERVO_ID = 15
+GRIPPER_OPEN_ANGLE_DEG = 75.0
+GRIPPER_CLOSED_ANGLE_DEG = 52.8
 
 # 舵机控制上下限配置。
 STEER_ANGLE_MIN_DEG = -90.0  # 转向舵机。
@@ -105,15 +110,11 @@ ARM_INIT_PITCH2_DEG = -140.0
 ARM_INIT_PITCH3_DEG = 0.0
 
 # 自动抓取任务姿态配置。
-# 二维码任务到位后，控制端依次执行：
-# 1. Pitch1/Pitch2 转到抓取姿态
-# 2. 执行夹爪抓取占位逻辑
-# 3. Pitch1/Pitch2 转到放置姿态
-# 4. 机械臂复位
-# 这些角度是待标定值，后续只需要改这里。
-ARM_GRAB_PITCH1_DEG = -3.92
-ARM_GRAB_PITCH2_DEG = -120.25
-ARM_PLACE_PITCH1_DEG = 94.39
-ARM_PLACE_PITCH2_DEG = 117.98
-ARM_AUTO_ACTION_DELAY_MS = 1500
+# 下面角度是直接下发给舵机的绝对目标角，不再叠加初始角。
+ARM_GRAB_PITCH1_DEG = -50.0
+ARM_GRAB_PITCH2_DEG = -110.6
+ARM_PLACE_PITCH1_DEG = -9.0
+ARM_PLACE_PITCH2_DEG = 135.0
+ARM_AUTO_PITCH3_DEG = 0.0
+ARM_AUTO_ACTION_DELAY_MS = 2000
 

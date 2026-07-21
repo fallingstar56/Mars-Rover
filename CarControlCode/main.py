@@ -30,6 +30,7 @@ from ps2_control import ps2_loop
 from ps2_lib import PS2Controller, PS2Receiver
 from robot_config import (
     ARM_AUTO_ACTION_DELAY_MS,
+    ARM_AUTO_PITCH3_DEG,
     ARM_GRAB_PITCH1_DEG,
     ARM_GRAB_PITCH2_DEG,
     ARM_PLACE_PITCH1_DEG,
@@ -45,6 +46,9 @@ from robot_config import (
     CAMERA_UART_TX,
     CAMERA_SERVO_ID,
     DEFAULT_ACC_RAD_S2,
+    GRIPPER_CLOSED_ANGLE_DEG,
+    GRIPPER_OPEN_ANGLE_DEG,
+    GRIPPER_SERVO_ID,
     LINE_FOLLOW_BASE_SPEED_RAD_S,
     LINE_FOLLOW_DATA_TIMEOUT_MS,
     LINE_FOLLOW_MAX_STEER_DEG,
@@ -232,8 +236,25 @@ def parse_qrcode_task(payload):
 
 
 def run_gripper_grab(rover):
-    """夹爪抓取动作占位。后续在这里补充夹爪舵机/电机控制。"""
-    pass
+    """闭合夹爪抓取方块。"""
+    ok = rover.servo_control.set_reserve_servo_angle(
+        GRIPPER_SERVO_ID,
+        GRIPPER_CLOSED_ANGLE_DEG,
+    )
+    if not ok:
+        print("夹爪舵机未启用，无法执行抓取。")
+    return ok
+
+
+def run_gripper_release(rover):
+    """张开夹爪释放方块。"""
+    ok = rover.servo_control.set_reserve_servo_angle(
+        GRIPPER_SERVO_ID,
+        GRIPPER_OPEN_ANGLE_DEG,
+    )
+    if not ok:
+        print("夹爪舵机未启用，无法释放方块。")
+    return ok
 
 
 def execute_grab_place_task(rover, color):
@@ -247,10 +268,23 @@ def execute_grab_place_task(rover, color):
         rover.servo_control.set_camera_angle(0.0)
         rover.arm.camera_angle_deg = 0.0
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
-        rover.arm.move_pitch12(ARM_GRAB_PITCH1_DEG, ARM_GRAB_PITCH2_DEG)
+        rover.arm.move_pitch123(
+            ARM_GRAB_PITCH1_DEG,
+            ARM_GRAB_PITCH2_DEG,
+            ARM_AUTO_PITCH3_DEG,
+        )
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
-        run_gripper_grab(rover)
-        rover.arm.move_pitch12(ARM_PLACE_PITCH1_DEG, ARM_PLACE_PITCH2_DEG)
+        if not run_gripper_grab(rover):
+            return False
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+        rover.arm.move_pitch123(
+            ARM_PLACE_PITCH1_DEG,
+            ARM_PLACE_PITCH2_DEG,
+            ARM_AUTO_PITCH3_DEG,
+        )
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+        if not run_gripper_release(rover):
+            return False
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
         rover.arm.apply_initial_pose()
         rover.servo_control.set_camera_angle(CAMERA_INIT_ANGLE_DEG)
