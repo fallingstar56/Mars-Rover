@@ -16,7 +16,7 @@ def clamp(value, low, high):
 # 硬件端口与运行模式
 # =============================================================================
 
-RUN_MODE = "idle"  # 可选值："idle" | "ps2" | "line_follow" | "debug"
+RUN_MODE = "debug"  # 可选值："idle" | "ps2" | "line_follow" | "debug"
 
 # UART 接线。
 SERVO_UART_ID = 2
@@ -74,12 +74,12 @@ RESERVE_SERVO_IDS = (15,)  # 可填多个 ID，如 (13, 14)。
 RESERVE_SERVO_SIGNS = {15: 1}  # 每个 ID 的方向符号，1 或 -1，如 {13: 1, 14: -1}。
 RESERVE_SERVO_INIT_ANGLE_DEG = {15: 75}  # 每个 ID 的初始角，如 {13: 0.0, 14: 10.0}。
 RESERVE_SERVO_MIN_DEG = {15: 40}  # 每个 ID 的下限，如 {13: -90.0, 14: 0.0}。
-RESERVE_SERVO_MAX_DEG = {15: 90}  # 每个 ID 的上限，如 {13: 90.0, 14: 45.0}。
+RESERVE_SERVO_MAX_DEG = {15: 110}  # 每个 ID 的上限，如 {13: 90.0, 14: 45.0}。
 
 # 夹爪舵机配置。
 GRIPPER_SERVO_ID = 15
-GRIPPER_OPEN_ANGLE_DEG = 90.0
-GRIPPER_CLOSED_ANGLE_DEG = 52.8
+GRIPPER_OPEN_ANGLE_DEG = 100.0
+GRIPPER_CLOSED_ANGLE_DEG = 52
 
 # 舵机控制上下限配置。
 STEER_ANGLE_MIN_DEG = -90.0  # 转向舵机。
@@ -111,9 +111,9 @@ ARM_INIT_PITCH3_DEG = 0.0
 
 # 自动抓取任务姿态配置。
 # 下面角度是直接下发给舵机的绝对目标角，不再叠加初始角。
-ARM_GRAB_PITCH1_DEG = -60.0
-ARM_GRAB_PITCH2_DEG = -110.6
-ARM_PLACE_PITCH1_DEG = -10.0
+ARM_GRAB_PITCH1_DEG = -65.0
+ARM_GRAB_PITCH2_DEG = -100
+ARM_PLACE_PITCH1_DEG = -15.0
 ARM_PLACE_PITCH2_DEG = 125.0
 ARM_AUTO_PITCH3_DEG = 0.0
 ARM_AUTO_ACTION_DELAY_MS = 2000

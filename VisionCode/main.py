@@ -14,7 +14,7 @@ while not app.need_exit():
     img = cam.read()
 
     if xunhuan_num >= 1:  # 60 帧判断一次。
-        blobs = img.find_blobs(thresholds_red, pixels_threshold=10)
+        blobs = img.find_blobs(thresholds_red, pixels_threshold=1500)
         if blobs != []:
             for blob in blobs:
                 print("red")
