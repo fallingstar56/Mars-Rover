@@ -26,7 +26,7 @@ from esp32 import CAN
 from chassis_control import LunarRover
 from arm_control import ArmKinematicsError, RobotArm
 from motor_lib import MotorBus
-from ps2_control import ps2_loop
+from ps2_control import button_pressed, map_joystick, ps2_loop
 from ps2_lib import PS2Controller, PS2Receiver
 from robot_config import (
     ARM_AUTO_ACTION_DELAY_MS,
@@ -58,6 +58,17 @@ from robot_config import (
     LINE_FOLLOW_DATA_TIMEOUT_MS,
     LINE_FOLLOW_MAX_STEER_DEG,
     LINE_FOLLOW_STEER_KP,
+    MAX_MOTOR_RPM,
+    MAX_STEER_ANGLE_DEG,
+    MULTI_CENTER_TOLERANCE_PX,
+    MULTI_COLUMN_COUNT,
+    MULTI_COLUMN_MOVE_MS,
+    MULTI_DETECT_TIMEOUT_MS,
+    MULTI_HORIZONTAL_SPEED_RAD_S,
+    MULTI_HORIZONTAL_STEER_DEG,
+    MULTI_GRAB_ROW_POSES,
+    MULTI_PLACE_POSES,
+    PIVOT_SPEED_SCALE,
     PS2_CLK,
     PS2_CS,
     PS2_DI,
@@ -89,6 +100,10 @@ CAMERA_TRACK_NEAR_GAP_PX = 60
 CAMERA_TRACK_NEAR_MAX_SPEED_RAD_S = 0.35
 CAMERA_DATA_TIMEOUT_MS = 500
 VALID_TASK_COLORS = ("red", "pink", "blue", "purple", "yellow")
+_MULTI_MAX_MOTOR_RAD_S = MAX_MOTOR_RPM * 2.0 * math.pi / 60.0
+_MULTI_MAX_PIVOT_RAD_S = _MULTI_MAX_MOTOR_RAD_S * PIVOT_SPEED_SCALE
+_MULTI_SCAN_BUTTON_NAME = "L3"
+_MULTI_EXECUTE_BUTTON_NAME = "R3"
 
 
 def clamp(value, low, high):
@@ -391,6 +406,300 @@ def arm_debug_loop():
         )
 
 
+def parse_multi_detect_frame(raw_data):
+    if raw_data is None:
+        return None
+    if isinstance(raw_data, bytes):
+        raw_data = raw_data.decode("utf-8", "replace")
+
+    frames = str(raw_data).strip().splitlines()
+    for frame in frames:
+        parts = frame.strip().split()
+        if len(parts) < 2 or parts[0] != "md":
+            continue
+        if parts[1] == "none":
+            return {"found": False}
+        if len(parts) < 4:
+            continue
+        try:
+            return {
+                "found": True,
+                "color": parts[1],
+                "dx": int(parts[2]),
+                "dy": int(parts[3]),
+            }
+        except ValueError:
+            continue
+    return None
+
+
+def request_multi_detect():
+    global camera_data
+    camera_data["value"] = None
+    send_camera_command(camera_uart, "multi_detect\n")
+    start_ms = time.ticks_ms()
+
+    while time.ticks_diff(time.ticks_ms(), start_ms) <= MULTI_DETECT_TIMEOUT_MS:
+        if camera_data["value"] is not None:
+            raw_data = camera_data["value"]
+            camera_data["value"] = None
+            detection = parse_multi_detect_frame(raw_data)
+            if detection is not None:
+                return detection
+            print("multi：忽略非色块检测串口数据:", raw_data)
+        time.sleep_ms(30)
+
+    return None
+
+
+def multi_detection_centered(detection):
+    return (
+        detection is not None
+        and detection.get("found")
+        and abs(detection["dx"]) <= MULTI_CENTER_TOLERANCE_PX
+        and abs(detection["dy"]) <= MULTI_CENTER_TOLERANCE_PX
+    )
+
+
+def multi_move_horizontal(direction_steps):
+    if direction_steps == 0:
+        return
+    direction = 1 if direction_steps > 0 else -1
+    for _ in range(abs(int(direction_steps))):
+        rover.drive(
+            MULTI_HORIZONTAL_SPEED_RAD_S * direction,
+            MULTI_HORIZONTAL_STEER_DEG,
+        )
+        time.sleep_ms(MULTI_COLUMN_MOVE_MS)
+        rover.stop()
+        time.sleep_ms(150)
+
+
+def execute_multi_single_grab_place_placeholder(
+    color,
+    column_index,
+    row_index,
+    place_index,
+):
+    rover.stop()
+    if row_index >= len(MULTI_GRAB_ROW_POSES):
+        print("multi：%s 已超过三行可抓数量。" % color)
+        return False
+    if place_index >= len(MULTI_PLACE_POSES):
+        print("multi：放置序号 %d 超出已配置的 6 个放置姿态。" % (place_index + 1))
+        return False
+
+    grab_pitch1, grab_pitch2 = MULTI_GRAB_ROW_POSES[row_index]
+    place_pitch1, place_pitch2, place_pitch3 = MULTI_PLACE_POSES[place_index]
+    print(
+        "multi：命中目标色块 %s，列=%d，行=%d，放置序号=%d。"
+        % (color, column_index + 1, row_index + 1, place_index + 1)
+    )
+
+    try:
+        rover.arm.move_pitch123(
+            grab_pitch1,
+            grab_pitch2,
+            ARM_GRAB_PITCH3_DEG,
+        )
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+        if not run_gripper_grab(rover):
+            return False
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+
+        rover.arm.move_pitch123(
+            place_pitch1,
+            place_pitch2,
+            place_pitch3,
+        )
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+        if not run_gripper_release(rover):
+            return False
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+
+        rover.arm.apply_initial_pose()
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+    except ArmKinematicsError as err:
+        print("multi：机械臂目标无效：%s，%s" % (err.reason, err.message))
+        return False
+
+    return True
+
+
+def execute_multi_grab_placeholder(task_queue):
+    rover.stop()
+    print("multi：开始执行三列搜索占位逻辑，任务队列:", task_queue)
+    entry_detection = request_multi_detect()
+    if not multi_detection_centered(entry_detection):
+        print("multi：停车点未满足中心红框与第一行色块中心重合，检测结果:", entry_detection)
+        return False
+
+    current_column = 0
+    grabbed_count_by_color = {}
+    for task_index, target_color in enumerate(task_queue):
+        row_index = grabbed_count_by_color.get(target_color, 0)
+        print("multi：开始寻找第 %d 个任务目标: %s" % (task_index + 1, target_color))
+        if current_column != 0:
+            multi_move_horizontal(-current_column)
+            current_column = 0
+
+        matched = False
+        for column_index in range(MULTI_COLUMN_COUNT):
+            current_column = column_index
+            detection = request_multi_detect()
+            if detection is None:
+                print("multi：第 %d 列检测超时。" % (column_index + 1))
+            elif not detection.get("found"):
+                print("multi：第 %d 列未识别到第一行色块。" % (column_index + 1))
+            else:
+                print(
+                    "multi：第 %d 列识别到 %s，dx=%d, dy=%d。"
+                    % (
+                        column_index + 1,
+                        detection["color"],
+                        detection["dx"],
+                        detection["dy"],
+                    )
+                )
+                if detection["color"] == target_color:
+                    matched = True
+                    if not execute_multi_single_grab_place_placeholder(
+                        target_color,
+                        column_index,
+                        row_index,
+                        task_index,
+                    ):
+                        return False
+                    grabbed_count_by_color[target_color] = row_index + 1
+                    break
+
+            if column_index < MULTI_COLUMN_COUNT - 1:
+                multi_move_horizontal(1)
+                current_column += 1
+
+        if not matched:
+            print("multi：三列中没有找到目标颜色:", target_color)
+            return False
+
+    return True
+
+
+def drive_rover_from_ps2_snapshot(ps2, buttons, lx, rx, ry):
+    if button_pressed(buttons, ps2.PS2_BTN_R2):
+        turn = map_joystick(rx)
+        turn_speed = turn / 100.0 * _MULTI_MAX_PIVOT_RAD_S
+        rover.pivot_turn(turn_speed)
+        return
+
+    throttle = -map_joystick(ry)
+    steer = map_joystick(lx)
+    speed_rad_s = throttle / 100.0 * _MULTI_MAX_MOTOR_RAD_S
+    steer_angle_deg = steer / 100.0 * MAX_STEER_ANGLE_DEG
+    rover.drive(speed_rad_s, steer_angle_deg)
+
+
+def parse_multi_camera_task(raw_data):
+    if raw_data is None:
+        return None
+    if isinstance(raw_data, bytes):
+        raw_data = raw_data.decode("utf-8", "replace")
+
+    frames = str(raw_data).strip().splitlines()
+    for frame in frames:
+        frame = frame.strip()
+        if frame == "" or frame.startswith("sx") or frame.startswith("ln"):
+            continue
+        parsed_task = parse_qrcode_task(frame)
+        if parsed_task is not None:
+            return parsed_task
+    return None
+
+
+def multi_loop(ps2):
+    global camera_data
+    rover.prepare()
+    print(
+        "RUN_MODE=multi：先用 PS2 驾驶到扫码位置并停车，按 %s 加载二维码任务；"
+        "再驾驶到抓取位置并停车，按 %s 启动抓取/放置占位逻辑。"
+        % (_MULTI_SCAN_BUTTON_NAME, _MULTI_EXECUTE_BUTTON_NAME)
+    )
+
+    task_queue = []
+    scan_pending = False
+    task_loaded = False
+    prev_buttons = 0
+
+    while True:
+        ps2.update()
+        fresh, buttons, lx, ly, rx, ry, _ = ps2.snapshot()
+        if not fresh:
+            rover.stop()
+            time.sleep_ms(50)
+            continue
+
+        scan_pressed = (
+            button_pressed(buttons, ps2.PS2_BTN_L3)
+            and not button_pressed(prev_buttons, ps2.PS2_BTN_L3)
+        )
+        execute_pressed = (
+            button_pressed(buttons, ps2.PS2_BTN_R3)
+            and not button_pressed(prev_buttons, ps2.PS2_BTN_R3)
+        )
+        prev_buttons = buttons
+
+        if button_pressed(buttons, ps2.PS2_BTN_SELECT):
+            rover.stop()
+            print("multi：SELECT 退出。")
+            return
+
+        if button_pressed(buttons, ps2.PS2_BTN_R1):
+            rover.stop()
+            time.sleep_ms(50)
+            continue
+
+        if scan_pressed:
+            rover.stop()
+            camera_data["value"] = None
+            scan_pending = True
+            task_loaded = False
+            send_camera_command(camera_uart, "scan\n")
+            print("multi：已请求相机扫描二维码，等待任务数据。")
+            time.sleep_ms(200)
+            continue
+
+        if execute_pressed:
+            rover.stop()
+            if not task_loaded:
+                print("multi：还没有二维码任务，先按 %s 加载任务。" % _MULTI_SCAN_BUTTON_NAME)
+            else:
+                execute_multi_grab_placeholder(task_queue)
+            time.sleep_ms(200)
+            continue
+
+        if scan_pending and camera_data["value"] is not None:
+            raw_data = camera_data["value"]
+            camera_data["value"] = None
+            parsed_task = parse_multi_camera_task(raw_data)
+            if parsed_task is None:
+                print("multi：等待二维码任务，忽略串口数据:", raw_data)
+            else:
+                task_queue = parsed_task
+                scan_pending = False
+                task_loaded = True
+                send_camera_command(camera_uart, "ok\n")
+                print("multi：二维码任务加载完成，抓取队列:", task_queue)
+            time.sleep_ms(50)
+            continue
+
+        if scan_pending:
+            rover.stop()
+            time.sleep_ms(50)
+            continue
+
+        drive_rover_from_ps2_snapshot(ps2, buttons, lx, rx, ry)
+        time.sleep_ms(50)
+
+
 def send_camera_command(serial, command):
     try:
         serial.write(command)
@@ -492,6 +801,18 @@ def main():
             ps2.start()
             try:
                 ps2_loop(rover, ps2, camera_data, camera_uart)
+            finally:
+                ps2.stop()
+                rover.disable()
+            return
+
+        if RUN_MODE == "multi":
+            ps2_controller = PS2Controller(di=PS2_DI, do=PS2_DO, cs=PS2_CS, clk=PS2_CLK)
+            ps2_controller.init_vibration()
+            ps2 = PS2Receiver(ps2_controller, 30, True)
+            ps2.start()
+            try:
+                multi_loop(ps2)
             finally:
                 ps2.stop()
                 rover.disable()

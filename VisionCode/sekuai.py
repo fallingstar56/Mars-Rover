@@ -34,6 +34,7 @@ grab_task = []
 grab_queue = []
 current_task_index = 0
 target_reported = False
+multi_detect_requested = False
 
 # 屏幕中心捕获框：30x30，真正以 (320, 240) 为中心。
 TARGET_LEFT = 305
@@ -43,6 +44,7 @@ TARGET_HEIGHT = 30
 TARGET_RIGHT = TARGET_LEFT + TARGET_WIDTH
 TARGET_BOTTOM = TARGET_TOP + TARGET_HEIGHT
 TARGET_CENTER_X = TARGET_LEFT + TARGET_WIDTH / 2
+TARGET_CENTER_Y = TARGET_TOP + TARGET_HEIGHT / 2
 TARGET_AXIS_TOLERANCE_PX = 1
 # 第一次发生真实重叠后锁存完成状态，本轮任务不再重新启动。
 target_reached = False
@@ -137,6 +139,26 @@ draw_color_by_task_color = {
     "yellow": image.COLOR_GREEN,
 }
 
+
+def find_multi_first_row_block(img):
+    candidates = []
+    for color, thresholds in thresholds_by_color.items():
+        blobs = img.find_blobs(thresholds, pixels_threshold=1500)
+        for blob in blobs:
+            candidates.append((color, blob))
+
+    if not candidates:
+        return None
+
+    def center_distance_sq(item):
+        blob = item[1]
+        dx = blob[5] - TARGET_CENTER_X
+        dy = blob[6] - TARGET_CENTER_Y
+        return dx * dx + dy * dy
+
+    color, blob = min(candidates, key=center_distance_sq)
+    return color, blob
+
 # 摄像头初始化。
 cam = camera.Camera(640, 480)
 disp = display.Display()
@@ -157,6 +179,37 @@ while not app.need_exit():
                 print("全部视觉抓取目标已完成。")
         elif command == "ok":
             print("小车端已确认二维码任务。")
+        elif command == "scan":
+            if task_loaded and task_raw != "":
+                serial.write_str(task_raw + "\n")
+                print("按请求重发二维码任务:", task_raw)
+            else:
+                print("收到扫码请求，等待识别二维码。")
+        elif command == "multi_detect":
+            multi_detect_requested = True
+
+    if multi_detect_requested:
+        multi_detect_requested = False
+        detection = find_multi_first_row_block(img)
+        if detection is None:
+            serial.write_str("md none\n")
+            print("multi detect: none")
+        else:
+            detected_color, detected_blob = detection
+            center_x = int(detected_blob[5])
+            center_y = int(detected_blob[6])
+            dx = center_x - int(TARGET_CENTER_X)
+            dy = center_y - int(TARGET_CENTER_Y)
+            serial.write_str("md %s %d %d\n" % (detected_color, dx, dy))
+            img.draw_rect(
+                detected_blob[0],
+                detected_blob[1],
+                detected_blob[2],
+                detected_blob[3],
+                draw_color_by_task_color[detected_color],
+                5,
+            )
+            print("multi detect:", detected_color, dx, dy)
 
     if not task_loaded:
         qrcodes = img.find_qrcodes()
