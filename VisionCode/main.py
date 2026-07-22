@@ -202,6 +202,8 @@ def report_multi_detection(img, detection, prefix):
 # 摄像头初始化。
 cam = camera.Camera(640, 480)
 disp = display.Display()
+cam.awb_mode(camera.AwbMode.Manual)
+cam.set_wb_gain([0.1254,0.0625,0.0625,0.1113])
 
 while not app.need_exit():
     img = cam.read()

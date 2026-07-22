@@ -16,7 +16,7 @@ def clamp(value, low, high):
 # 硬件端口与运行模式
 # =============================================================================
 
-RUN_MODE = "multi"  # 可选值："idle" | "ps2" | "line_follow" | "debug" | "multi"
+RUN_MODE = "debug"  # 可选值："idle" | "ps2" | "line_follow" | "debug" | "multi"
 
 # UART 接线。
 SERVO_UART_ID = 2
@@ -131,16 +131,16 @@ ARM_AUTO_ACTION_DELAY_MS = 3000
 
 # Multi 模式抓取姿态：每行四个绝对角 [roll, pitch1, pitch2, pitch3]。
 MULTI_GRAB_ROW1_ROLL_DEG = 0.8
-MULTI_GRAB_ROW1_PITCH1_DEG = -64.9
-MULTI_GRAB_ROW1_PITCH2_DEG = -109.8
+MULTI_GRAB_ROW1_PITCH1_DEG = -63.9
+MULTI_GRAB_ROW1_PITCH2_DEG = -107
 MULTI_GRAB_ROW1_PITCH3_DEG = 0.0
 MULTI_GRAB_ROW2_ROLL_DEG = 0.7
 MULTI_GRAB_ROW2_PITCH1_DEG = -65.5
-MULTI_GRAB_ROW2_PITCH2_DEG = -99.0
+MULTI_GRAB_ROW2_PITCH2_DEG = -96.0
 MULTI_GRAB_ROW2_PITCH3_DEG = 7.0
 MULTI_GRAB_ROW3_ROLL_DEG = 1.2
-MULTI_GRAB_ROW3_PITCH1_DEG = -72.0
-MULTI_GRAB_ROW3_PITCH2_DEG = -65.7
+MULTI_GRAB_ROW3_PITCH1_DEG = -74.0
+MULTI_GRAB_ROW3_PITCH2_DEG = -62
 MULTI_GRAB_ROW3_PITCH3_DEG = -28.8
 
 # Multi 模式放置姿态：第 1~6 个物体每个四个绝对角 [roll, pitch1, pitch2, pitch3]。
@@ -156,7 +156,7 @@ MULTI_PLACE_3_ROLL_DEG = 0.5
 MULTI_PLACE_3_PITCH1_DEG = 16.2
 MULTI_PLACE_3_PITCH2_DEG = 71.7
 MULTI_PLACE_3_PITCH3_DEG = 83.9
-MULTI_PLACE_4_ROLL_DEG = -14.2
+MULTI_PLACE_4_ROLL_DEG = -13.0
 MULTI_PLACE_4_PITCH1_DEG = -1.2
 MULTI_PLACE_4_PITCH2_DEG = 93.9
 MULTI_PLACE_4_PITCH3_DEG = 82.8
