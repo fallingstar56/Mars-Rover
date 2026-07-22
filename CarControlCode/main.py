@@ -45,6 +45,7 @@ from robot_config import (
     CAN_RX,
     CAN_TX,
     CAMERA_INIT_ANGLE_DEG,
+    CAMERA_L3_ANGLE_DEG,
     CAMERA_UART_BAUD,
     CAMERA_UART_ID,
     CAMERA_UART_RX,
@@ -64,6 +65,7 @@ from robot_config import (
     MULTI_COLUMN_COUNT,
     MULTI_COLUMN_MOVE_MS,
     MULTI_DETECT_TIMEOUT_MS,
+    MULTI_ENTRY_ALIGN_TIMEOUT_MS,
     MULTI_HORIZONTAL_SPEED_RAD_S,
     MULTI_HORIZONTAL_STEER_DEG,
     MULTI_GRAB_ROW_POSES,
@@ -320,8 +322,8 @@ def arm_debug_loop():
     rover.stop()
     current_gripper_angle = GRIPPER_OPEN_ANGLE_DEG
     print("RUN_MODE=debug，已完成上电复位。")
-    print("输入格式：camera=<角度> pitch1=<角度> pitch2=<角度> pitch3=<角度> gripper=<角度>")
-    print("也可按顺序输入最多 5 个数：camera pitch1 pitch2 pitch3 gripper。输入 r 复位，q 退出。")
+    print("输入格式：camera=<角度> roll=<角度> pitch1=<角度> pitch2=<角度> pitch3=<角度> gripper=<角度>")
+    print("也可按顺序输入最多 6 个数：camera roll pitch1 pitch2 pitch3 gripper。输入 r 复位，q 退出。")
 
     while True:
         try:
@@ -351,7 +353,7 @@ def arm_debug_loop():
 
         parts = text.replace(",", " ").split()
         values = {}
-        ordered_names = ("camera", "pitch1", "pitch2", "pitch3", "gripper")
+        ordered_names = ("camera", "roll", "pitch1", "pitch2", "pitch3", "gripper")
         try:
             for index, part in enumerate(parts):
                 if "=" in part:
@@ -365,7 +367,7 @@ def arm_debug_loop():
                         raise ValueError("too_many")
                     values[ordered_names[index]] = float(part)
         except ValueError:
-            print("格式错误。示例：camera=0 pitch1=-50 pitch2=-110.6 pitch3=0 gripper=52.8")
+            print("格式错误。示例：camera=0 roll=0 pitch1=-50 pitch2=-110.6 pitch3=0 gripper=52.8")
             continue
 
         try:
@@ -373,10 +375,12 @@ def arm_debug_loop():
                 rover.servo_control.set_camera_angle(values["camera"])
                 rover.arm.camera_angle_deg = values["camera"]
 
+            target_roll = values.get("roll", rover.arm.roll_deg)
             target_pitch1 = values.get("pitch1", rover.arm.pitch1_deg)
             target_pitch2 = values.get("pitch2", rover.arm.pitch2_deg)
             target_pitch3 = values.get("pitch3", rover.arm.pitch3_deg)
-            result = rover.arm.move_pitch123(
+            result = rover.arm.move_joint_pose(
+                target_roll,
                 target_pitch1,
                 target_pitch2,
                 target_pitch3,
@@ -395,9 +399,10 @@ def arm_debug_loop():
             continue
 
         print(
-            "已执行：Camera=%.2f deg, Pitch1=%.2f deg, Pitch2=%.2f deg, Pitch3=%.2f deg, Gripper=%.2f deg"
+            "已执行：Camera=%.2f deg, Roll=%.2f deg, Pitch1=%.2f deg, Pitch2=%.2f deg, Pitch3=%.2f deg, Gripper=%.2f deg"
             % (
                 rover.arm.camera_angle_deg,
+                result["roll_deg"],
                 result["pitch1_deg"],
                 result["pitch2_deg"],
                 result["pitch3_deg"],
@@ -434,9 +439,17 @@ def parse_multi_detect_frame(raw_data):
 
 
 def request_multi_detect():
+    return request_multi_detection_frame("multi_detect\n")
+
+
+def request_multi_anchor_detect():
+    return request_multi_detection_frame("multi_anchor\n")
+
+
+def request_multi_detection_frame(command):
     global camera_data
     camera_data["value"] = None
-    send_camera_command(camera_uart, "multi_detect\n")
+    send_camera_command(camera_uart, command)
     start_ms = time.ticks_ms()
 
     while time.ticks_diff(time.ticks_ms(), start_ms) <= MULTI_DETECT_TIMEOUT_MS:
@@ -450,6 +463,83 @@ def request_multi_detect():
         time.sleep_ms(30)
 
     return None
+
+
+def align_multi_left_bottom_anchor():
+    """将 3x3 左下角色块中心对齐到画面中心红框。"""
+    start_ms = time.ticks_ms()
+    while time.ticks_diff(time.ticks_ms(), start_ms) <= MULTI_ENTRY_ALIGN_TIMEOUT_MS:
+        detection = request_multi_anchor_detect()
+        if detection is None:
+            rover.stop()
+            print("multi：左下角基准色块检测超时。")
+            time.sleep_ms(50)
+            continue
+        if not detection.get("found"):
+            rover.stop()
+            print("multi：未识别到 3x3 左下角基准色块。")
+            time.sleep_ms(50)
+            continue
+
+        print(
+            "multi：左下角基准色块 %s，dx=%d, dy=%d。"
+            % (detection["color"], detection["dx"], detection["dy"])
+        )
+        if multi_detection_centered(detection):
+            rover.stop()
+            rover.center_chassis_servos()
+            print("multi：已对齐 3x3 左下角基准色块，当前位置作为第一列起点。")
+            return True
+
+        # md 的 dx/dy 是 blob_center - target_center；track_camera_target 使用 target - blob。
+        track_camera_target(rover, -detection["dx"], -detection["dy"])
+        time.sleep_ms(80)
+
+    rover.stop()
+    print("multi：左下角基准色块对齐超时。")
+    return False
+
+
+def align_multi_current_target_color(target_color):
+    """命中目标列后，将当前目标色块中心再次对齐到画面中心红框。"""
+    start_ms = time.ticks_ms()
+    while time.ticks_diff(time.ticks_ms(), start_ms) <= MULTI_ENTRY_ALIGN_TIMEOUT_MS:
+        detection = request_multi_detect()
+        if detection is None:
+            rover.stop()
+            print("multi：目标色块 %s 微调检测超时。" % target_color)
+            time.sleep_ms(50)
+            continue
+        if not detection.get("found"):
+            rover.stop()
+            print("multi：目标色块 %s 微调时未识别到色块。" % target_color)
+            time.sleep_ms(50)
+            continue
+        if detection["color"] != target_color:
+            rover.stop()
+            print(
+                "multi：微调时中心最近色块从 %s 变为 %s，停止本次抓取。"
+                % (target_color, detection["color"])
+            )
+            return False
+
+        print(
+            "multi：目标色块 %s 微调，dx=%d, dy=%d。"
+            % (target_color, detection["dx"], detection["dy"])
+        )
+        if multi_detection_centered(detection):
+            rover.stop()
+            rover.center_chassis_servos()
+            print("multi：目标色块 %s 已再次对齐。" % target_color)
+            return True
+
+        # md 的 dx/dy 是 blob_center - target_center；track_camera_target 使用 target - blob。
+        track_camera_target(rover, -detection["dx"], -detection["dy"])
+        time.sleep_ms(80)
+
+    rover.stop()
+    print("multi：目标色块 %s 微调对齐超时。" % target_color)
+    return False
 
 
 def multi_detection_centered(detection):
@@ -475,12 +565,16 @@ def multi_move_horizontal(direction_steps):
         time.sleep_ms(150)
 
 
-def reset_multi_action_servos():
+def set_multi_camera_angle(angle_deg):
+    rover.servo_control.set_camera_angle(angle_deg)
+    rover.arm.camera_angle_deg = angle_deg
+
+
+def reset_multi_action_servos(camera_angle_deg=CAMERA_INIT_ANGLE_DEG):
     """单次 multi 抓放动作结束后恢复动作相关舵机。"""
     rover.center_chassis_servos()
     rover.arm.apply_initial_pose()
-    rover.servo_control.set_camera_angle(CAMERA_INIT_ANGLE_DEG)
-    rover.arm.camera_angle_deg = CAMERA_INIT_ANGLE_DEG
+    set_multi_camera_angle(camera_angle_deg)
     run_gripper_release(rover)
 
 
@@ -498,16 +592,16 @@ def execute_multi_single_grab_place_placeholder(
         print("multi：放置序号 %d 超出已配置的 6 个放置姿态。" % (place_index + 1))
         return False
 
-    grab_roll, grab_pitch1, grab_pitch2, grab_pitch3 = MULTI_GRAB_ROW_POSES[row_index]
+    grab_pose_index = len(MULTI_GRAB_ROW_POSES) - 1 - row_index
+    grab_roll, grab_pitch1, grab_pitch2, grab_pitch3 = MULTI_GRAB_ROW_POSES[grab_pose_index]
     place_roll, place_pitch1, place_pitch2, place_pitch3 = MULTI_PLACE_POSES[place_index]
     print(
         "multi：命中目标色块 %s，列=%d，行=%d，放置序号=%d。"
-        % (color, column_index + 1, row_index + 1, place_index + 1)
+        % (color, column_index + 1, grab_pose_index + 1, place_index + 1)
     )
 
     try:
-        rover.servo_control.set_camera_angle(0.0)
-        rover.arm.camera_angle_deg = 0.0
+        set_multi_camera_angle(CAMERA_INIT_ANGLE_DEG)
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
 
         rover.arm.move_joint_pose(
@@ -517,6 +611,7 @@ def execute_multi_single_grab_place_placeholder(
             grab_pitch3,
         )
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+
         if not run_gripper_grab(rover):
             return False
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
@@ -544,59 +639,67 @@ def execute_multi_single_grab_place_placeholder(
 def execute_multi_grab_placeholder(task_queue):
     rover.stop()
     print("multi：开始执行三列搜索占位逻辑，任务队列:", task_queue)
-    entry_detection = request_multi_detect()
-    if not multi_detection_centered(entry_detection):
-        print("multi：停车点未满足中心红框与第一行色块中心重合，检测结果:", entry_detection)
-        return False
-
-    current_column = 0
-    grabbed_count_by_color = {}
-    for task_index, target_color in enumerate(task_queue):
-        row_index = grabbed_count_by_color.get(target_color, 0)
-        print("multi：开始寻找第 %d 个任务目标: %s" % (task_index + 1, target_color))
-        if current_column != 0:
-            multi_move_horizontal(-current_column)
-            current_column = 0
-
-        matched = False
-        for column_index in range(MULTI_COLUMN_COUNT):
-            current_column = column_index
-            detection = request_multi_detect()
-            if detection is None:
-                print("multi：第 %d 列检测超时。" % (column_index + 1))
-            elif not detection.get("found"):
-                print("multi：第 %d 列未识别到第一行色块。" % (column_index + 1))
-            else:
-                print(
-                    "multi：第 %d 列识别到 %s，dx=%d, dy=%d。"
-                    % (
-                        column_index + 1,
-                        detection["color"],
-                        detection["dx"],
-                        detection["dy"],
-                    )
-                )
-                if detection["color"] == target_color:
-                    matched = True
-                    if not execute_multi_single_grab_place_placeholder(
-                        target_color,
-                        column_index,
-                        row_index,
-                        task_index,
-                    ):
-                        return False
-                    grabbed_count_by_color[target_color] = row_index + 1
-                    break
-
-            if column_index < MULTI_COLUMN_COUNT - 1:
-                multi_move_horizontal(1)
-                current_column += 1
-
-        if not matched:
-            print("multi：三列中没有找到目标颜色:", target_color)
+    set_multi_camera_angle(CAMERA_L3_ANGLE_DEG)
+    time.sleep_ms(200)
+    try:
+        if not align_multi_left_bottom_anchor():
             return False
 
-    return True
+        current_column = 0
+        grabbed_count_by_color = {}
+        for task_index, target_color in enumerate(task_queue):
+            row_index = grabbed_count_by_color.get(target_color, 0)
+            print("multi：开始寻找第 %d 个任务目标: %s" % (task_index + 1, target_color))
+            if current_column != 0:
+                multi_move_horizontal(-current_column)
+                current_column = 0
+
+            matched = False
+            for column_index in range(MULTI_COLUMN_COUNT):
+                current_column = column_index
+                detection = request_multi_detect()
+                if detection is None:
+                    print("multi：第 %d 列检测超时。" % (column_index + 1))
+                elif not detection.get("found"):
+                    print("multi：第 %d 列未识别到当前列基准色块。" % (column_index + 1))
+                else:
+                    print(
+                        "multi：第 %d 列识别到 %s，dx=%d, dy=%d。"
+                        % (
+                            column_index + 1,
+                            detection["color"],
+                            detection["dx"],
+                            detection["dy"],
+                        )
+                    )
+                    if detection["color"] == target_color:
+                        matched = True
+                        if not align_multi_current_target_color(target_color):
+                            return False
+                        if not execute_multi_single_grab_place_placeholder(
+                            target_color,
+                            column_index,
+                            row_index,
+                            task_index,
+                        ):
+                            return False
+                        grabbed_count_by_color[target_color] = row_index + 1
+                        if task_index < len(task_queue) - 1:
+                            set_multi_camera_angle(CAMERA_L3_ANGLE_DEG)
+                            time.sleep_ms(200)
+                        break
+
+                if column_index < MULTI_COLUMN_COUNT - 1:
+                    multi_move_horizontal(1)
+                    current_column += 1
+
+            if not matched:
+                print("multi：三列中没有找到目标颜色:", target_color)
+                return False
+
+        return True
+    finally:
+        set_multi_camera_angle(CAMERA_INIT_ANGLE_DEG)
 
 
 def drive_rover_from_ps2_snapshot(ps2, buttons, lx, rx, ry):
@@ -666,6 +769,10 @@ def multi_loop(ps2):
             button_pressed(buttons, ps2.PS2_BTN_R3)
             and not button_pressed(prev_buttons, ps2.PS2_BTN_R3)
         )
+        camera_l3_pressed = (
+            button_pressed(buttons, ps2.PS2_BTN_L3)
+            and not button_pressed(prev_buttons, ps2.PS2_BTN_L3)
+        )
         prev_buttons = buttons
 
         if not task_loaded and camera_data["value"] is not None:
@@ -690,6 +797,13 @@ def multi_loop(ps2):
         if button_pressed(buttons, ps2.PS2_BTN_R1):
             rover.stop()
             time.sleep_ms(50)
+            continue
+
+        if camera_l3_pressed:
+            rover.servo_control.set_camera_angle(CAMERA_L3_ANGLE_DEG)
+            rover.arm.camera_angle_deg = CAMERA_L3_ANGLE_DEG
+            print("multi：L3，相机转到 %.1f°。" % CAMERA_L3_ANGLE_DEG)
+            time.sleep_ms(200)
             continue
 
         if execute_pressed:
