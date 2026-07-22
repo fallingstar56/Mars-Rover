@@ -230,7 +230,6 @@ def ps2_loop(rover, ps2, data, serial):
         #   if button_pressed(buttons, ps2.按键定义名称):
         #   按键定义名称如下：
         #   self.PS2_BTN_SELECT
-        #   self.PS2_BTN_L3
         #   self.PS2_BTN_R3
         #   self.PS2_BTN_START
         #   self.PS2_BTN_UP

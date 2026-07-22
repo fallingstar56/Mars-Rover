@@ -86,6 +86,7 @@ from servo_lib import ServoBus
 
 # 相机串口共享数据。
 camera_data = {"value": None}
+_CAMERA_DATA_BUFFER_MAX_CHARS = 2048
 
 # 视觉跟踪参数。delta_x/delta_y 是视觉端计算的中心框与识别框边缘距离。
 # 当前视觉分辨率为 640x480，因此最大半宽/半高分别约为 320/240。
@@ -102,7 +103,6 @@ CAMERA_DATA_TIMEOUT_MS = 500
 VALID_TASK_COLORS = ("red", "pink", "blue", "purple", "yellow")
 _MULTI_MAX_MOTOR_RAD_S = MAX_MOTOR_RPM * 2.0 * math.pi / 60.0
 _MULTI_MAX_PIVOT_RAD_S = _MULTI_MAX_MOTOR_RAD_S * PIVOT_SPEED_SCALE
-_MULTI_SCAN_BUTTON_NAME = "L3"
 _MULTI_EXECUTE_BUTTON_NAME = "R3"
 
 
@@ -475,6 +475,15 @@ def multi_move_horizontal(direction_steps):
         time.sleep_ms(150)
 
 
+def reset_multi_action_servos():
+    """单次 multi 抓放动作结束后恢复动作相关舵机。"""
+    rover.center_chassis_servos()
+    rover.arm.apply_initial_pose()
+    rover.servo_control.set_camera_angle(CAMERA_INIT_ANGLE_DEG)
+    rover.arm.camera_angle_deg = CAMERA_INIT_ANGLE_DEG
+    run_gripper_release(rover)
+
+
 def execute_multi_single_grab_place_placeholder(
     color,
     column_index,
@@ -489,25 +498,31 @@ def execute_multi_single_grab_place_placeholder(
         print("multi：放置序号 %d 超出已配置的 6 个放置姿态。" % (place_index + 1))
         return False
 
-    grab_pitch1, grab_pitch2 = MULTI_GRAB_ROW_POSES[row_index]
-    place_pitch1, place_pitch2, place_pitch3 = MULTI_PLACE_POSES[place_index]
+    grab_roll, grab_pitch1, grab_pitch2, grab_pitch3 = MULTI_GRAB_ROW_POSES[row_index]
+    place_roll, place_pitch1, place_pitch2, place_pitch3 = MULTI_PLACE_POSES[place_index]
     print(
         "multi：命中目标色块 %s，列=%d，行=%d，放置序号=%d。"
         % (color, column_index + 1, row_index + 1, place_index + 1)
     )
 
     try:
-        rover.arm.move_pitch123(
+        rover.servo_control.set_camera_angle(0.0)
+        rover.arm.camera_angle_deg = 0.0
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+
+        rover.arm.move_joint_pose(
+            grab_roll,
             grab_pitch1,
             grab_pitch2,
-            ARM_GRAB_PITCH3_DEG,
+            grab_pitch3,
         )
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
         if not run_gripper_grab(rover):
             return False
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
 
-        rover.arm.move_pitch123(
+        rover.arm.move_joint_pose(
+            place_roll,
             place_pitch1,
             place_pitch2,
             place_pitch3,
@@ -516,12 +531,12 @@ def execute_multi_single_grab_place_placeholder(
         if not run_gripper_release(rover):
             return False
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
-
-        rover.arm.apply_initial_pose()
-        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
     except ArmKinematicsError as err:
         print("multi：机械臂目标无效：%s，%s" % (err.reason, err.message))
         return False
+    finally:
+        reset_multi_action_servos()
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
 
     return True
 
@@ -630,13 +645,12 @@ def multi_loop(ps2):
     global camera_data
     rover.prepare()
     print(
-        "RUN_MODE=multi：先用 PS2 驾驶到扫码位置并停车，按 %s 加载二维码任务；"
-        "再驾驶到抓取位置并停车，按 %s 启动抓取/放置占位逻辑。"
-        % (_MULTI_SCAN_BUTTON_NAME, _MULTI_EXECUTE_BUTTON_NAME)
+        "RUN_MODE=multi：二维码任务由视觉端 sekuai.py 自动扫描并发送；"
+        "用 PS2 驾驶到抓取位置并停车，按 %s 启动抓取/放置逻辑。"
+        % _MULTI_EXECUTE_BUTTON_NAME
     )
 
     task_queue = []
-    scan_pending = False
     task_loaded = False
     prev_buttons = 0
 
@@ -648,15 +662,25 @@ def multi_loop(ps2):
             time.sleep_ms(50)
             continue
 
-        scan_pressed = (
-            button_pressed(buttons, ps2.PS2_BTN_L3)
-            and not button_pressed(prev_buttons, ps2.PS2_BTN_L3)
-        )
         execute_pressed = (
             button_pressed(buttons, ps2.PS2_BTN_R3)
             and not button_pressed(prev_buttons, ps2.PS2_BTN_R3)
         )
         prev_buttons = buttons
+
+        if not task_loaded and camera_data["value"] is not None:
+            raw_data = camera_data["value"]
+            camera_data["value"] = None
+            parsed_task = parse_multi_camera_task(raw_data)
+            if parsed_task is None:
+                print("multi：等待 sekuai.py 自动二维码任务，忽略串口数据:", raw_data)
+            else:
+                task_queue = parsed_task
+                task_loaded = True
+                send_camera_command(camera_uart, "ok\n")
+                print("multi：二维码任务加载完成，抓取队列:", task_queue)
+            time.sleep_ms(50)
+            continue
 
         if button_pressed(buttons, ps2.PS2_BTN_SELECT):
             rover.stop()
@@ -668,43 +692,13 @@ def multi_loop(ps2):
             time.sleep_ms(50)
             continue
 
-        if scan_pressed:
-            rover.stop()
-            camera_data["value"] = None
-            scan_pending = True
-            task_loaded = False
-            send_camera_command(camera_uart, "scan\n")
-            print("multi：已请求相机扫描二维码，等待任务数据。")
-            time.sleep_ms(200)
-            continue
-
         if execute_pressed:
             rover.stop()
             if not task_loaded:
-                print("multi：还没有二维码任务，先按 %s 加载任务。" % _MULTI_SCAN_BUTTON_NAME)
+                print("multi：还没有二维码任务，请等待 sekuai.py 识别二维码并自动发送任务。")
             else:
                 execute_multi_grab_placeholder(task_queue)
             time.sleep_ms(200)
-            continue
-
-        if scan_pending and camera_data["value"] is not None:
-            raw_data = camera_data["value"]
-            camera_data["value"] = None
-            parsed_task = parse_multi_camera_task(raw_data)
-            if parsed_task is None:
-                print("multi：等待二维码任务，忽略串口数据:", raw_data)
-            else:
-                task_queue = parsed_task
-                scan_pending = False
-                task_loaded = True
-                send_camera_command(camera_uart, "ok\n")
-                print("multi：二维码任务加载完成，抓取队列:", task_queue)
-            time.sleep_ms(50)
-            continue
-
-        if scan_pending:
-            rover.stop()
-            time.sleep_ms(50)
             continue
 
         drive_rover_from_ps2_snapshot(ps2, buttons, lx, rx, ry)
@@ -757,7 +751,13 @@ def re_uart(uart):
         while True:
             if uart.any() and uart == camera_uart:
                 data = uart.read()
-                camera_data["value"] = data.decode("utf-8", "replace")
+                text = data.decode("utf-8", "replace")
+                if camera_data["value"] is None:
+                    camera_data["value"] = text
+                else:
+                    camera_data["value"] = (
+                        str(camera_data["value"]) + text
+                    )[-_CAMERA_DATA_BUFFER_MAX_CHARS:]
                 print("串口1收到数据:", camera_data["value"])
             time.sleep_ms(10)  # 防止形成阻塞。
     except UnicodeError:
