@@ -1,11 +1,11 @@
 from maix import app, camera, display, image
 
 
-thresholds_red = [[30, 43, 30, 40, 9, 18]]
-thresholds_pink = [[56, 64, 18, 25, -1, -7]]
-thresholds_blue = [[36, 46, -2, 5, -45, -36]]
-thresholds_purple = [[24, 37, 13, 19, -35, -44]]
-thresholds_yellow = [[54, 64, -6, 1, 39, 57]]
+thresholds_red = [[0, 50, 35, 80, 10, 80]]
+thresholds_pink = [[29, 70, 11, 39, -8, 15]]
+thresholds_blue = [[0, 70, -10, 20, -80, -20]]
+thresholds_purple = [[0, 80, 7, 37, -25, -5]]
+thresholds_yellow = [[33, 75, -9, 10, 21, 73]]
 
 COLOR_CONFIG = (
     ("red", thresholds_red, image.COLOR_RED),
@@ -22,8 +22,10 @@ TARGET_WIDTH = 30
 TARGET_HEIGHT = 30
 
 
-cam = camera.Camera(640, 480, fps=60)
+cam = camera.Camera(640, 480)
 disp = display.Display()
+cam.awb_mode(camera.AwbMode.Manual)
+cam.set_wb_gain([0.1254,0.0625,0.0625,0.1113])
 
 while not app.need_exit():
     img = cam.read()
