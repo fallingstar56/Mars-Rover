@@ -124,11 +124,11 @@ def parse_qrcode_task(payload):
     return colors, counts, task, queue
 
 
-thresholds_red = [[30, 43, 30, 40, 9, 18]]
-thresholds_pink = [[56, 64, 18, 25, -1, -7]]
-thresholds_blue = [[36, 46, -2, 5, -45, -36]]
-thresholds_purple = [[24, 37, 13, 19, -35, -44]]
-thresholds_yellow = [[54, 64, -6, 1, 39, 57]]
+thresholds_red = [[0, 50, 35, 80, 10, 80]]
+thresholds_pink = [[29, 70, 11, 39, -8, 15]]
+thresholds_blue = [[0, 70, -10, 20, -80, -20]]
+thresholds_purple = [[0, 80, 7, 37, -25, -5]]
+thresholds_yellow = [[33, 75, -9, 10, 50, 73]]
 thresholds_by_color = {
     "red": thresholds_red,
     "pink": thresholds_pink,

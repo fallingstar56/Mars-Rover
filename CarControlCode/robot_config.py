@@ -16,7 +16,7 @@ def clamp(value, low, high):
 # 硬件端口与运行模式
 # =============================================================================
 
-RUN_MODE = "debug"  # 可选值："idle" | "ps2" | "line_follow" | "debug" | "multi"
+RUN_MODE = "multi"  # 可选值："idle" | "ps2" | "line_follow" | "debug" | "multi"
 
 # UART 接线。
 SERVO_UART_ID = 2
@@ -67,7 +67,7 @@ MULTI_DETECT_TIMEOUT_MS = 1200
 MULTI_ENTRY_ALIGN_TIMEOUT_MS = 8000
 MULTI_HORIZONTAL_STEER_DEG = 90.0
 MULTI_HORIZONTAL_SPEED_RAD_S = 0.6
-MULTI_COLUMN_MOVE_MS = 900
+MULTI_COLUMN_MOVE_MS = 2667
 
 
 # =============================================================================
@@ -83,12 +83,12 @@ RESERVE_SERVO_IDS = (15,)  # 可填多个 ID，如 (13, 14)。
 RESERVE_SERVO_SIGNS = {15: 1}  # 每个 ID 的方向符号，1 或 -1，如 {13: 1, 14: -1}。
 RESERVE_SERVO_INIT_ANGLE_DEG = {15: 100}  # 每个 ID 的初始角，如 {13: 0.0, 14: 10.0}。
 RESERVE_SERVO_MIN_DEG = {15: 40}  # 每个 ID 的下限，如 {13: -90.0, 14: 0.0}。
-RESERVE_SERVO_MAX_DEG = {15: 110}  # 每个 ID 的上限，如 {13: 90.0, 14: 45.0}。
+RESERVE_SERVO_MAX_DEG = {15: 130}  # 每个 ID 的上限，如 {13: 90.0, 14: 45.0}。
 
 # 夹爪舵机配置。
 GRIPPER_SERVO_ID = 15
-GRIPPER_OPEN_ANGLE_DEG = 100.0
-GRIPPER_CLOSED_ANGLE_DEG = 50
+GRIPPER_OPEN_ANGLE_DEG = 120.0
+GRIPPER_CLOSED_ANGLE_DEG = 54
 
 # 舵机控制上下限配置。
 STEER_ANGLE_MIN_DEG = -90.0  # 转向舵机。
@@ -96,7 +96,7 @@ STEER_ANGLE_MAX_DEG = 90.0
 CAMERA_ANGLE_MIN_DEG = -90.0  # 相机舵机。
 CAMERA_ANGLE_MAX_DEG = 0.0
 CAMERA_INIT_ANGLE_DEG = 0.0  # 相机上电复位角度，同时作为点动控制的初始状态。
-CAMERA_L3_ANGLE_DEG = -77.5  # multi 模式下 R3 前按 L3 时的相机角度。
+CAMERA_L3_ANGLE_DEG = -74.0  # multi 模式下 R3 前按 L3 时的相机角度。
 ARM_ROLL_MIN_DEG = -180.0  # 机械臂 Roll 舵机。
 ARM_ROLL_MAX_DEG = 180.0
 ARM_PITCH1_MIN_DEG = -90.0  # 机械臂 Pitch1 舵机。
@@ -135,12 +135,12 @@ MULTI_GRAB_ROW1_PITCH1_DEG = -63.9
 MULTI_GRAB_ROW1_PITCH2_DEG = -107
 MULTI_GRAB_ROW1_PITCH3_DEG = 0.0
 MULTI_GRAB_ROW2_ROLL_DEG = 0.7
-MULTI_GRAB_ROW2_PITCH1_DEG = -65.5
-MULTI_GRAB_ROW2_PITCH2_DEG = -96.0
-MULTI_GRAB_ROW2_PITCH3_DEG = 7.0
+MULTI_GRAB_ROW2_PITCH1_DEG = -71
+MULTI_GRAB_ROW2_PITCH2_DEG = -83.0
+MULTI_GRAB_ROW2_PITCH3_DEG = -10
 MULTI_GRAB_ROW3_ROLL_DEG = 1.2
-MULTI_GRAB_ROW3_PITCH1_DEG = -74.0
-MULTI_GRAB_ROW3_PITCH2_DEG = -62
+MULTI_GRAB_ROW3_PITCH1_DEG = -79.0
+MULTI_GRAB_ROW3_PITCH2_DEG = -55.0
 MULTI_GRAB_ROW3_PITCH3_DEG = -28.8
 
 # Multi 模式放置姿态：第 1~6 个物体每个四个绝对角 [roll, pitch1, pitch2, pitch3]。
