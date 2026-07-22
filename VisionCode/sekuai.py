@@ -5,7 +5,7 @@ thresholds_red = [[0, 50, 35, 80, 10, 80]]
 thresholds_pink = [[29, 70, 11, 39, -8, 15]]
 thresholds_blue = [[0, 70, -10, 20, -80, -20]]
 thresholds_purple = [[0, 80, 7, 37, -25, -5]]
-thresholds_yellow = [[33, 75, -9, 10, 21, 73]]
+thresholds_yellow = [[33, 75, -9, 10, 50, 73]]
 
 COLOR_CONFIG = (
     ("red", thresholds_red, image.COLOR_RED),
