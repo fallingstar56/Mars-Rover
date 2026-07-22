@@ -1,3 +1,4 @@
+import os
 import threading
 
 from maix import app, camera, display, image
@@ -36,6 +37,9 @@ current_task_index = 0
 target_reported = False
 multi_detect_requested = False
 multi_anchor_requested = False
+multi_debug_image_index = 0
+
+DEBUG_SAVE_DIR = "./debug"
 
 # 屏幕中心捕获框：30x30，真正以 (320, 240) 为中心。
 TARGET_LEFT = 305
@@ -141,6 +145,19 @@ draw_color_by_task_color = {
 }
 
 
+def image_color(name, fallback):
+    return getattr(image, name, fallback)
+
+
+debug_draw_color_by_task_color = {
+    "red": image.COLOR_RED,
+    "pink": image_color("COLOR_WHITE", image.COLOR_RED),
+    "blue": image_color("COLOR_BLUE", image.COLOR_GREEN),
+    "purple": image.COLOR_BLACK,
+    "yellow": image_color("COLOR_YELLOW", image.COLOR_GREEN),
+}
+
+
 def collect_multi_blocks(img):
     candidates = []
     for color, thresholds in thresholds_by_color.items():
@@ -148,6 +165,72 @@ def collect_multi_blocks(img):
         for blob in blobs:
             candidates.append((color, blob))
     return candidates
+
+
+def ensure_debug_save_dir():
+    try:
+        os.mkdir(DEBUG_SAVE_DIR)
+    except OSError:
+        pass
+
+
+def draw_multi_debug_blob(img, color, blob):
+    draw_color = debug_draw_color_by_task_color[color]
+    x = blob[0]
+    y = blob[1]
+    w = blob[2]
+    h = blob[3]
+    center_x = int(blob[5])
+    center_y = int(blob[6])
+    label_y = y - 16
+    if label_y < 0:
+        label_y = y + h + 2
+
+    img.draw_rect(x, y, w, h, draw_color, 3)
+    img.draw_string(x, label_y, "%s %d,%d" % (color, center_x, center_y), draw_color)
+    img.draw_line(center_x - 8, center_y, center_x + 8, center_y, draw_color)
+    img.draw_line(center_x, center_y - 8, center_x, center_y + 8, draw_color)
+
+
+def save_multi_debug_image(img, candidates, prefix):
+    global multi_debug_image_index
+    multi_debug_image_index += 1
+
+    for color, blob in candidates:
+        draw_multi_debug_blob(img, color, blob)
+
+    img.draw_rect(
+        TARGET_LEFT,
+        TARGET_TOP,
+        TARGET_WIDTH,
+        TARGET_HEIGHT,
+        image.COLOR_RED,
+        5,
+    )
+    img.draw_string(4, 4, "%s blocks=%d" % (prefix, len(candidates)), image.COLOR_RED)
+
+    ensure_debug_save_dir()
+    path = "%s/%s_%04d_%02d.jpg" % (
+        DEBUG_SAVE_DIR,
+        prefix,
+        multi_debug_image_index,
+        len(candidates),
+    )
+    try:
+        img.save(path)
+        print("multi debug image saved:", path)
+    except Exception as error:
+        print("multi debug image save failed:", path, error)
+
+
+def find_multi_left_bottom_block_from_candidates(candidates):
+    if not candidates:
+        return None, 0
+
+    # 3x3 阵列中左下角：先按中心 y 取最下面一行，再取这一行最靠左的色块。
+    bottom_row = sorted(candidates, key=lambda item: item[1][6], reverse=True)[:3]
+    color, blob = min(bottom_row, key=lambda item: item[1][5])
+    return (color, blob), len(candidates)
 
 
 def find_multi_first_row_block(img):
@@ -167,13 +250,7 @@ def find_multi_first_row_block(img):
 
 def find_multi_left_bottom_block(img):
     candidates = collect_multi_blocks(img)
-    if not candidates:
-        return None, 0
-
-    # 3x3 阵列中左下角：先按中心 y 取最下面一行，再取这一行最靠左的色块。
-    bottom_row = sorted(candidates, key=lambda item: item[1][6], reverse=True)[:3]
-    color, blob = min(bottom_row, key=lambda item: item[1][5])
-    return (color, blob), len(candidates)
+    return find_multi_left_bottom_block_from_candidates(candidates)
 
 
 def report_multi_detection(img, detection, prefix):
@@ -236,7 +313,9 @@ while not app.need_exit():
 
     if multi_anchor_requested:
         multi_anchor_requested = False
-        detection, block_count = find_multi_left_bottom_block(img)
+        candidates = collect_multi_blocks(img)
+        detection, block_count = find_multi_left_bottom_block_from_candidates(candidates)
+        save_multi_debug_image(img, candidates, "multi_anchor")
         print("multi anchor block count:", block_count)
         report_multi_detection(img, detection, "multi anchor:")
 
