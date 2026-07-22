@@ -25,6 +25,7 @@ _ARM_JOG_COMMAND_DELAY_MS = 50
 _ARM_JOG_STEP_DEG = 8
 _last_arm_error_key = None
 _last_arm_error_ms = 0
+_last_motor_disabled_warn_ms = 0
 
 
 # ==============================================================================
@@ -94,6 +95,15 @@ def print_arm_error(err):
     _last_arm_error_key = key
     _last_arm_error_ms = now_ms
     print("机械臂目标无效：%s，%s" % (err.reason, err.message))
+
+
+def print_motor_disabled_warning():
+    global _last_motor_disabled_warn_ms
+    now_ms = ticks_ms()
+    if ticks_diff(now_ms, _last_motor_disabled_warn_ms) < 1000:
+        return
+    _last_motor_disabled_warn_ms = now_ms
+    print("电机未使能：请按三角键启用电机。")
 
 
 def sync_arm_control_state(rover):
@@ -301,6 +311,11 @@ def ps2_loop(rover, ps2, data, serial):
             turn = map_joystick(rx)
             # 计算目标旋转角速度：摇杆百分比 * 原地旋转最大角速度限制。
             turn_speed = turn / 100.0 * _MAX_PIVOT_RAD_S
+            if not rover.motors_enabled and abs(turn_speed) > 0.01:
+                rover.stop()
+                print_motor_disabled_warning()
+                time.sleep_ms(50)
+                continue
             rover.pivot_turn(turn_speed)
             time.sleep_ms(50)
             continue
@@ -323,6 +338,15 @@ def ps2_loop(rover, ps2, data, serial):
         # 将 -100~100 摇杆百分比按照最大限制缩放到实际车轮角速度和转向角度。
         speed_rad_s = throttle / 100.0 * _MAX_MOTOR_RAD_S
         steer_angle_deg = steer / 100.0 * MAX_STEER_ANGLE_DEG
+
+        if (
+            not rover.motors_enabled
+            and (abs(speed_rad_s) > 0.01 or abs(steer_angle_deg) > 0.1)
+        ):
+            rover.stop()
+            print_motor_disabled_warning()
+            time.sleep_ms(50)
+            continue
 
         # 发送行驶指令到底盘。
         rover.drive(speed_rad_s, steer_angle_deg)

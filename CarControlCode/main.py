@@ -588,6 +588,10 @@ def drive_rover_from_ps2_snapshot(ps2, buttons, lx, rx, ry):
     if button_pressed(buttons, ps2.PS2_BTN_R2):
         turn = map_joystick(rx)
         turn_speed = turn / 100.0 * _MULTI_MAX_PIVOT_RAD_S
+        if not rover.motors_enabled and abs(turn_speed) > 0.01:
+            rover.stop()
+            print("multi：电机未使能，无法原地转向。")
+            return
         rover.pivot_turn(turn_speed)
         return
 
@@ -595,6 +599,13 @@ def drive_rover_from_ps2_snapshot(ps2, buttons, lx, rx, ry):
     steer = map_joystick(lx)
     speed_rad_s = throttle / 100.0 * _MULTI_MAX_MOTOR_RAD_S
     steer_angle_deg = steer / 100.0 * MAX_STEER_ANGLE_DEG
+    if (
+        not rover.motors_enabled
+        and (abs(speed_rad_s) > 0.01 or abs(steer_angle_deg) > 0.1)
+    ):
+        rover.stop()
+        print("multi：电机未使能，无法行驶。")
+        return
     rover.drive(speed_rad_s, steer_angle_deg)
 
 
