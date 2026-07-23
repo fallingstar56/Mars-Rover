@@ -108,6 +108,7 @@ _MULTI_MAX_PIVOT_RAD_S = _MULTI_MAX_MOTOR_RAD_S * PIVOT_SPEED_SCALE
 _MULTI_EXECUTE_BUTTON_NAME = "R3"
 _MULTI_COUNT_CONFIRM_MOVE_RAD_S = 0.12
 _MULTI_COUNT_CONFIRM_MOVE_MS = 1500
+_LINE_CALIBRATION_MARKER_COUNT = 4
 
 
 def clamp(value, low, high):
@@ -181,6 +182,28 @@ def parse_line_follow_frame(raw_data):
     }
 
 
+def parse_line_calibration_frame(raw_data):
+    """解析巡线中绿色标定纸片数据：lc <dx> <dy> <area>。"""
+    if raw_data is None:
+        return None
+    if isinstance(raw_data, bytes):
+        raw_data = raw_data.decode("utf-8", "replace")
+
+    parts = str(raw_data).strip().split()
+    if len(parts) < 4 or parts[0] != "lc":
+        return None
+
+    try:
+        return {
+            "found": True,
+            "dx": int(parts[1]),
+            "dy": int(parts[2]),
+            "area": int(parts[3]),
+        }
+    except ValueError:
+        return None
+
+
 def track_camera_target(rover, delta_x, delta_y):
     """将画面偏差转换为底盘的二维移动命令。"""
     delta_x = int(delta_x)
@@ -222,15 +245,44 @@ def track_camera_target(rover, delta_x, delta_y):
     return speed_rad_s, steer_angle_deg
 
 
-def follow_line_target(rover, line_dx):
-    """将巡线水平偏差转换为前进和转向命令。"""
+def follow_line_target(rover, line_dx, target_dx=0):
+    """按目标平行间距将巡线水平偏差转换为前进和转向命令。"""
+    line_error = int(line_dx) - int(target_dx)
     steer_angle_deg = clamp(
-        int(line_dx) * LINE_FOLLOW_STEER_KP,
+        line_error * LINE_FOLLOW_STEER_KP,
         -LINE_FOLLOW_MAX_STEER_DEG,
         LINE_FOLLOW_MAX_STEER_DEG,
     )
     rover.drive(LINE_FOLLOW_BASE_SPEED_RAD_S, steer_angle_deg)
     return LINE_FOLLOW_BASE_SPEED_RAD_S, steer_angle_deg
+
+
+def handle_line_calibration_marker(marker_index):
+    """第 marker_index 个绿色标定纸片对齐后的动作入口，编号从 1 开始。"""
+    if marker_index == 1:
+        handle_line_calibration_marker_1()
+    elif marker_index == 2:
+        handle_line_calibration_marker_2()
+    elif marker_index == 3:
+        handle_line_calibration_marker_3()
+    elif marker_index == 4:
+        handle_line_calibration_marker_4()
+
+
+def handle_line_calibration_marker_1():
+    pass
+
+
+def handle_line_calibration_marker_2():
+    pass
+
+
+def handle_line_calibration_marker_3():
+    pass
+
+
+def handle_line_calibration_marker_4():
+    pass
 
 
 def parse_qrcode_task(payload):
@@ -1320,6 +1372,9 @@ def line_follow_loop():
     global camera_data
     last_line_data_ms = time.ticks_ms()
     line_motion_active = False
+    target_line_dx = None
+    calibration_marker_index = 1
+    calibration_waiting_leave = False
 
     while True:
         if camera_data["value"] is not None:
@@ -1334,6 +1389,58 @@ def line_follow_loop():
                 if frame == "":
                     continue
 
+                calibration_info = parse_line_calibration_frame(frame)
+                if calibration_info is not None:
+                    last_line_data_ms = time.ticks_ms()
+                    if calibration_marker_index > _LINE_CALIBRATION_MARKER_COUNT:
+                        rover.stop()
+                        line_motion_active = False
+                        print("巡线标定：4 个绿色纸片均已处理，忽略后续标定纸片。")
+                        continue
+
+                    if calibration_waiting_leave:
+                        rover.stop()
+                        line_motion_active = False
+                        print("巡线标定：等待第 %d 个绿色纸片离开视野。" % (
+                            calibration_marker_index - 1
+                        ))
+                        continue
+
+                    print(
+                        "巡线标定：第 %d 个绿色纸片 dx=%d, dy=%d, area=%d。"
+                        % (
+                            calibration_marker_index,
+                            calibration_info["dx"],
+                            calibration_info["dy"],
+                            calibration_info["area"],
+                        )
+                    )
+                    if multi_detection_centered(calibration_info):
+                        rover.stop()
+                        rover.center_chassis_servos()
+                        print("巡线标定：第 %d 个绿色纸片已对齐。" % calibration_marker_index)
+                        handle_line_calibration_marker(calibration_marker_index)
+                        calibration_marker_index += 1
+                        calibration_waiting_leave = True
+                        line_motion_active = False
+                        continue
+
+                    # lc 的 dx/dy 与 multi 的 md 一样，是 blob_center - target_center。
+                    speed, steer = track_camera_target(
+                        rover,
+                        -calibration_info["dx"],
+                        -calibration_info["dy"],
+                    )
+                    line_motion_active = speed != 0.0
+                    print(
+                        "巡线标定对齐: speed=%.2f rad/s, steer=%.1f deg"
+                        % (speed, steer)
+                    )
+                    continue
+
+                if calibration_waiting_leave:
+                    calibration_waiting_leave = False
+
                 line_info = parse_line_follow_frame(frame)
                 if line_info is None:
                     print("非巡线视觉数据，已忽略:", frame)
@@ -1346,11 +1453,26 @@ def line_follow_loop():
                     print("巡线丢失，已停车")
                     continue
 
-                speed, steer = follow_line_target(rover, line_info["dx"])
+                if target_line_dx is None:
+                    target_line_dx = line_info["dx"]
+                    print("巡线目标平行间距已锁定: dx=%d px" % target_line_dx)
+
+                speed, steer = follow_line_target(
+                    rover,
+                    line_info["dx"],
+                    target_line_dx,
+                )
                 line_motion_active = True
                 print(
-                    "巡线: dx=%d, area=%d, speed=%.2f rad/s, steer=%.1f deg"
-                    % (line_info["dx"], line_info["area"], speed, steer)
+                    "巡线: dx=%d, target_dx=%d, error=%d, area=%d, speed=%.2f rad/s, steer=%.1f deg"
+                    % (
+                        line_info["dx"],
+                        target_line_dx,
+                        line_info["dx"] - target_line_dx,
+                        line_info["area"],
+                        speed,
+                        steer,
+                    )
                 )
         elif (
             line_motion_active
