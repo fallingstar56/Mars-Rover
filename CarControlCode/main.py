@@ -257,28 +257,108 @@ def follow_line_target(rover, line_dx, target_dx=0):
     return LINE_FOLLOW_BASE_SPEED_RAD_S, steer_angle_deg
 
 
-def handle_line_calibration_marker(marker_index):
+def line_calibration_marker_x_aligned(detection):
+    return (
+        detection is not None
+        and detection.get("found")
+        and abs(detection["dx"]) <= MULTI_CENTER_TOLERANCE_PX
+    )
+
+
+def wait_line_qrcode_task_queue():
+    """停车等待视觉端二维码任务 payload，并复用 multi 的任务队列解析逻辑。"""
+    global camera_data
+    camera_data["value"] = None
+    print("巡线标定：已停车，等待二维码任务队列。")
+    while True:
+        if camera_data["value"] is not None:
+            raw_data = camera_data["value"]
+            camera_data["value"] = None
+            parsed_task = parse_multi_camera_task(raw_data)
+            if parsed_task is None:
+                print("巡线标定：等待二维码任务，忽略串口数据:", raw_data)
+            else:
+                send_camera_command(camera_uart, "ok\n")
+                print("巡线标定：二维码任务加载完成，抓取队列:", parsed_task)
+                return parsed_task
+        time.sleep_ms(50)
+
+
+def move_right_until_line_calibration_x_aligned():
+    """向右平移，直到绿色标定纸片再次与相机中心 X 方向对齐。"""
+    global camera_data
+    camera_data["value"] = None
+    seen_unaligned = False
+    print("巡线标定：第 2 个绿色纸片动作，开始向右平移。")
+    rover.drive(MULTI_HORIZONTAL_SPEED_RAD_S, MULTI_HORIZONTAL_STEER_DEG)
+    while True:
+        if camera_data["value"] is not None:
+            raw_data = camera_data["value"]
+            camera_data["value"] = None
+            if isinstance(raw_data, bytes):
+                raw_data = raw_data.decode("utf-8", "replace")
+
+            frames = str(raw_data).strip().splitlines()
+            for frame in frames:
+                calibration_info = parse_line_calibration_frame(frame)
+                if calibration_info is None:
+                    continue
+
+                aligned = line_calibration_marker_x_aligned(calibration_info)
+                print(
+                    "巡线标定右移: dx=%d, area=%d, aligned=%s"
+                    % (
+                        calibration_info["dx"],
+                        calibration_info["area"],
+                        aligned,
+                    )
+                )
+                if aligned and seen_unaligned:
+                    rover.stop()
+                    rover.center_chassis_servos()
+                    print("巡线标定：右移停止，绿色纸片已重新 X 对齐。")
+                    return
+                if not aligned:
+                    seen_unaligned = True
+
+        time.sleep_ms(50)
+
+
+def handle_line_calibration_marker(marker_index, task_queue=None):
     """第 marker_index 个绿色标定纸片对齐后的动作入口，编号从 1 开始。"""
     if marker_index == 1:
-        handle_line_calibration_marker_1()
+        return handle_line_calibration_marker_1()
     elif marker_index == 2:
-        handle_line_calibration_marker_2()
+        return handle_line_calibration_marker_2()
     elif marker_index == 3:
-        handle_line_calibration_marker_3()
+        return handle_line_calibration_marker_3(task_queue)
     elif marker_index == 4:
-        handle_line_calibration_marker_4()
+        return handle_line_calibration_marker_4()
+    return None
 
 
 def handle_line_calibration_marker_1():
-    pass
+    rover.stop()
+    return wait_line_qrcode_task_queue()
 
 
 def handle_line_calibration_marker_2():
-    pass
+    move_right_until_line_calibration_x_aligned()
 
 
-def handle_line_calibration_marker_3():
-    pass
+def handle_line_calibration_marker_3(task_queue):
+    rover.stop()
+    if not task_queue:
+        print("巡线标定：第 3 个绿色纸片已对齐，但还没有二维码任务队列。")
+        return False
+    print("巡线标定：第 3 个绿色纸片已对齐，开始复用 multi 抓取放置链路。")
+    ok = execute_multi_grab_placeholder(task_queue)
+    rover.stop()
+    if ok:
+        print("巡线标定：multi 抓取放置任务完成，已停车。")
+    else:
+        print("巡线标定：multi 抓取放置任务失败，已停车。")
+    return ok
 
 
 def handle_line_calibration_marker_4():
@@ -953,7 +1033,12 @@ def parse_multi_camera_task(raw_data):
     frames = str(raw_data).strip().splitlines()
     for frame in frames:
         frame = frame.strip()
-        if frame == "" or frame.startswith("sx") or frame.startswith("ln"):
+        if (
+            frame == ""
+            or frame.startswith("sx")
+            or frame.startswith("ln")
+            or frame.startswith("lc")
+        ):
             continue
         parsed_task = parse_qrcode_task(frame)
         if parsed_task is not None:
@@ -1375,6 +1460,7 @@ def line_follow_loop():
     target_line_dx = None
     calibration_marker_index = 1
     calibration_waiting_leave = False
+    line_task_queue = []
 
     while True:
         if camera_data["value"] is not None:
@@ -1415,11 +1501,21 @@ def line_follow_loop():
                             calibration_info["area"],
                         )
                     )
-                    if multi_detection_centered(calibration_info):
+                    if line_calibration_marker_x_aligned(calibration_info):
                         rover.stop()
                         rover.center_chassis_servos()
                         print("巡线标定：第 %d 个绿色纸片已对齐。" % calibration_marker_index)
-                        handle_line_calibration_marker(calibration_marker_index)
+                        current_marker_index = calibration_marker_index
+                        marker_result = handle_line_calibration_marker(
+                            current_marker_index,
+                            line_task_queue,
+                        )
+                        if calibration_marker_index == 1 and marker_result is not None:
+                            line_task_queue = marker_result
+                            print("巡线标定：保存二维码任务队列:", line_task_queue)
+                        if current_marker_index == 3:
+                            rover.stop()
+                            return
                         calibration_marker_index += 1
                         calibration_waiting_leave = True
                         line_motion_active = False
@@ -1438,13 +1534,13 @@ def line_follow_loop():
                     )
                     continue
 
-                if calibration_waiting_leave:
-                    calibration_waiting_leave = False
-
                 line_info = parse_line_follow_frame(frame)
                 if line_info is None:
                     print("非巡线视觉数据，已忽略:", frame)
                     continue
+
+                if calibration_waiting_leave:
+                    calibration_waiting_leave = False
 
                 last_line_data_ms = time.ticks_ms()
                 if line_info["lost"]:
