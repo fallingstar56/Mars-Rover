@@ -383,7 +383,7 @@ def main():
                         marker_right,
                         TARGET_CENTER_X,
                     )
-                    marker_dy = 0
+                    marker_dy = int(marker_blob[6] - TARGET_CENTER_Y)
 
                 serial.write_str("lc %d %d %d\n" % (marker_dx, marker_dy, marker_area))
                 print(

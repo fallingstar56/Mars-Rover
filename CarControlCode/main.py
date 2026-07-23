@@ -112,6 +112,8 @@ _LINE_CALIBRATION_MARKER_COUNT = 5
 _LINE_CALIBRATION_MARKER_LEFT = "marker_left"
 _LINE_CALIBRATION_MULTI_MARKER_ALIGNED = "multi_marker_aligned"
 _LINE_CALIBRATION_SLOW_FORWARD_RAD_S = 0.25
+_LINE_CALIBRATION_MIN_FORWARD_RAD_S = 0.12
+_LINE_CALIBRATION_Y_SPEED_KP = 0.001
 
 
 def clamp(value, low, high):
@@ -338,28 +340,35 @@ def move_right_until_line_calibration_x_aligned():
 
 
 def slow_forward_adjust_until_line_calibration_marker_lost(initial_detection):
-    """低速前进并按 X 偏差微调，直到当前绿色标定纸片离开视野。"""
+    """低速前进并按水平中心线 Y 偏差微调，直到当前绿色标定纸片离开视野。"""
     global camera_data
     camera_data["value"] = None
     rover.stop()
     time.sleep_ms(100)
-    print("巡线标定：第 2 个绿色纸片动作，低速前进并保持 X 方向对齐。")
+    print("巡线标定：第 2 个绿色纸片动作，低速前进并保持水平中心线对齐。")
 
     current_detection = initial_detection
     while True:
         if current_detection is not None:
+            speed_rad_s = clamp(
+                _LINE_CALIBRATION_SLOW_FORWARD_RAD_S
+                + int(current_detection["dy"]) * _LINE_CALIBRATION_Y_SPEED_KP,
+                _LINE_CALIBRATION_MIN_FORWARD_RAD_S,
+                LINE_FOLLOW_BASE_SPEED_RAD_S,
+            )
             steer_angle_deg = clamp(
                 -int(current_detection["dx"]) * LINE_FOLLOW_STEER_KP,
                 -LINE_FOLLOW_MAX_STEER_DEG,
                 LINE_FOLLOW_MAX_STEER_DEG,
             )
-            rover.drive(_LINE_CALIBRATION_SLOW_FORWARD_RAD_S, steer_angle_deg)
+            rover.drive(speed_rad_s, steer_angle_deg)
             print(
-                "巡线标定慢速前进: dx=%d, area=%d, speed=%.2f rad/s, steer=%.1f deg"
+                "巡线标定慢速前进: dx=%d, dy=%d, area=%d, speed=%.2f rad/s, steer=%.1f deg"
                 % (
                     current_detection["dx"],
+                    current_detection["dy"],
                     current_detection["area"],
-                    _LINE_CALIBRATION_SLOW_FORWARD_RAD_S,
+                    speed_rad_s,
                     steer_angle_deg,
                 )
             )
