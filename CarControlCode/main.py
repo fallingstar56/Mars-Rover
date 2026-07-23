@@ -268,6 +268,14 @@ def drive_line_straight():
 
 
 def line_calibration_marker_x_aligned(detection):
+    return (
+        detection is not None
+        and detection.get("found")
+        and abs(detection["dx"]) <= MULTI_CENTER_TOLERANCE_PX
+    )
+
+
+def line_calibration_marker_parallel(detection):
     # 标定块的识别框与画面参考线均为水平/竖直轴线；不再要求中心距离接近。
     return detection is not None and detection.get("found")
 
@@ -323,7 +331,7 @@ def move_right_until_line_calibration_x_aligned():
                     % (
                         calibration_info["dx"],
                         calibration_info["area"],
-                        line_calibration_marker_x_aligned(calibration_info),
+                        line_calibration_marker_parallel(calibration_info),
                     )
                 )
                 if seen_marker_lost:
@@ -1594,7 +1602,13 @@ def line_follow_loop():
                             line_motion_active = True
                         continue
 
-                    if line_calibration_marker_x_aligned(calibration_info):
+                    if (
+                        calibration_marker_index == 1
+                        and line_calibration_marker_x_aligned(calibration_info)
+                    ) or (
+                        calibration_marker_index != 1
+                        and line_calibration_marker_parallel(calibration_info)
+                    ):
                         rover.stop()
                         rover.center_chassis_servos()
                         print("巡线标定：第 %d 个绿色纸片已识别，平行条件成立。" % calibration_marker_index)
