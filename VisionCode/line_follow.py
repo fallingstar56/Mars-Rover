@@ -4,7 +4,7 @@ from maix import uart
 
 # 线颜色阈值，全局变量，后续按实际绿色线标定填写。
 # 格式为 Maix LAB 阈值：[L_min, L_max, A_min, A_max, B_min, B_max]。
-LINE_COLOR_THRESHOLDS = [[46, 65, -27, -8, -39, -22]]
+LINE_COLOR_THRESHOLDS = [[46, 75, -27, -10, -39, 5]]
 CALIBRATION_MARKER_THRESHOLDS = [[60, 80, -30, -15, 40, 60]]
 
 FRAME_WIDTH = 640
