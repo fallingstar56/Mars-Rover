@@ -653,9 +653,34 @@ def execute_multi_grab_placeholder(task_queue):
 
         current_column = 0
         grabbed_count_by_color = {}
+        column_by_color = {}
         for task_index, target_color in enumerate(task_queue):
             row_index = grabbed_count_by_color.get(target_color, 0)
             print("multi：开始寻找第 %d 个任务目标: %s" % (task_index + 1, target_color))
+            cached_column = column_by_color.get(target_color)
+            if cached_column is not None:
+                print(
+                    "multi：%s 已确认在第 %d 列，直接回到该列微调。"
+                    % (target_color, cached_column + 1)
+                )
+                if current_column != cached_column:
+                    multi_move_horizontal(cached_column - current_column)
+                    current_column = cached_column
+                if not align_multi_current_target_color(target_color):
+                    return False
+                if not execute_multi_single_grab_place_placeholder(
+                    target_color,
+                    cached_column,
+                    row_index,
+                    task_index,
+                ):
+                    return False
+                grabbed_count_by_color[target_color] = row_index + 1
+                if task_index < len(task_queue) - 1:
+                    set_multi_camera_angle(CAMERA_L3_ANGLE_DEG)
+                    time.sleep_ms(200)
+                continue
+
             if current_column != 0:
                 multi_move_horizontal(-current_column)
                 current_column = 0
@@ -680,6 +705,7 @@ def execute_multi_grab_placeholder(task_queue):
                     )
                     if detection["color"] == target_color:
                         matched = True
+                        column_by_color[target_color] = column_index
                         if not align_multi_current_target_color(target_color):
                             return False
                         if not execute_multi_single_grab_place_placeholder(
