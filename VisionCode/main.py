@@ -36,6 +36,7 @@ grab_queue = []
 current_task_index = 0
 target_reported = False
 multi_detect_requested = False
+multi_detect_target_color = None
 multi_anchor_requested = False
 multi_debug_image_index = 0
 
@@ -248,6 +249,25 @@ def find_multi_first_row_block(img):
     return color, blob
 
 
+def find_multi_target_color_block(img, target_color):
+    candidates = [
+        (color, blob)
+        for color, blob in collect_multi_blocks(img)
+        if color == target_color
+    ]
+    if not candidates:
+        return None
+
+    def center_distance_sq(item):
+        blob = item[1]
+        dx = blob[5] - TARGET_CENTER_X
+        dy = blob[6] - TARGET_CENTER_Y
+        return dx * dx + dy * dy
+
+    color, blob = min(candidates, key=center_distance_sq)
+    return color, blob
+
+
 def find_multi_left_bottom_block(img):
     candidates = collect_multi_blocks(img)
     return find_multi_left_bottom_block_from_candidates(candidates)
@@ -304,14 +324,26 @@ while not app.need_exit():
                 print("按请求重发二维码任务:", task_raw)
             else:
                 print("收到扫码请求，等待识别二维码。")
-        elif command == "multi_detect":
+        elif command.startswith("multi_detect"):
+            parts = command.split()
             multi_detect_requested = True
+            if len(parts) >= 2 and parts[1] in VALID_TASK_COLORS:
+                multi_detect_target_color = parts[1]
+            else:
+                multi_detect_target_color = None
         elif command == "multi_anchor":
             multi_anchor_requested = True
 
     if multi_detect_requested:
         multi_detect_requested = False
-        report_multi_detection(img, find_multi_first_row_block(img), "multi detect:")
+        if multi_detect_target_color is None:
+            detection = find_multi_first_row_block(img)
+            prefix = "multi detect:"
+        else:
+            detection = find_multi_target_color_block(img, multi_detect_target_color)
+            prefix = "multi detect %s:" % multi_detect_target_color
+        multi_detect_target_color = None
+        report_multi_detection(img, detection, prefix)
 
     if multi_anchor_requested:
         multi_anchor_requested = False
@@ -417,6 +449,7 @@ while not app.need_exit():
             serial.write_str(u_data + "\n")
             if target_reached:
                 target_reported = True
+            time.sleep(0.05)
             
         xunhuan_num = 0
 

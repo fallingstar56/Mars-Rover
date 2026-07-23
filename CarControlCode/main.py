@@ -283,7 +283,7 @@ def reset_arm_after_place(rover):
     """放置后复位机械臂：先收 pitch1，再恢复完整初始位。"""
     rover.arm.move_joint_pose(
         rover.arm.roll_deg,
-        -15.0,
+        -45.0,
         rover.arm.pitch2_deg,
         rover.arm.pitch3_deg,
     )
@@ -450,8 +450,10 @@ def parse_multi_detect_frame(raw_data):
     return None
 
 
-def request_multi_detect():
-    return request_multi_detection_frame("multi_detect\n")
+def request_multi_detect(target_color=None):
+    if target_color is None:
+        return request_multi_detection_frame("multi_detect\n")
+    return request_multi_detection_frame("multi_detect %s\n" % target_color)
 
 
 def request_multi_anchor_detect():
@@ -516,7 +518,7 @@ def align_multi_current_target_color(target_color):
     """命中目标列后，将当前目标色块中心再次对齐到画面中心红框。"""
     start_ms = time.ticks_ms()
     while time.ticks_diff(time.ticks_ms(), start_ms) <= MULTI_ENTRY_ALIGN_TIMEOUT_MS:
-        detection = request_multi_detect()
+        detection = request_multi_detect(target_color)
         if detection is None:
             rover.stop()
             print("multi：目标色块 %s 微调检测超时。" % target_color)
@@ -527,14 +529,6 @@ def align_multi_current_target_color(target_color):
             print("multi：目标色块 %s 微调时未识别到色块。" % target_color)
             time.sleep_ms(50)
             continue
-        if detection["color"] != target_color:
-            rover.stop()
-            print(
-                "multi：微调时中心最近色块从 %s 变为 %s，停止本次抓取。"
-                % (target_color, detection["color"])
-            )
-            return False
-
         print(
             "multi：目标色块 %s 微调，dx=%d, dy=%d。"
             % (target_color, detection["dx"], detection["dy"])
