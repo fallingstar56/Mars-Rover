@@ -279,6 +279,18 @@ def run_gripper_release(rover):
     return ok
 
 
+def reset_arm_after_place(rover):
+    """放置后复位机械臂：先复位 pitch1，再复位 pitch2。"""
+    rover.arm.move_joint_pose(
+        ARM_INIT_ROLL_DEG,
+        ARM_INIT_PITCH1_DEG,
+        rover.arm.pitch2_deg,
+        ARM_INIT_PITCH3_DEG,
+    )
+    time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+    rover.arm.apply_initial_pose()
+
+
 def execute_grab_place_task(rover, color):
     """执行单个方块的抓取、放置和复位流程。"""
     rover.stop()
@@ -308,7 +320,7 @@ def execute_grab_place_task(rover, color):
         if not run_gripper_release(rover):
             return False
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
-        rover.arm.apply_initial_pose()
+        reset_arm_after_place(rover)
         rover.servo_control.set_camera_angle(CAMERA_INIT_ANGLE_DEG)
         rover.arm.camera_angle_deg = CAMERA_INIT_ANGLE_DEG
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
@@ -573,7 +585,7 @@ def set_multi_camera_angle(angle_deg):
 def reset_multi_action_servos(camera_angle_deg=CAMERA_INIT_ANGLE_DEG):
     """单次 multi 抓放动作结束后恢复动作相关舵机。"""
     rover.center_chassis_servos()
-    rover.arm.apply_initial_pose()
+    reset_arm_after_place(rover)
     set_multi_camera_angle(camera_angle_deg)
     run_gripper_release(rover)
 

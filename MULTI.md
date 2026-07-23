@@ -224,7 +224,7 @@ abs(dy) <= MULTI_CENTER_TOLERANCE_PX
 
 ```python
 MULTI_CENTER_TOLERANCE_PX = 8
-MULTI_ENTRY_ALIGN_TIMEOUT_MS = 8000
+MULTI_ENTRY_ALIGN_TIMEOUT_MS = 15000
 ```
 
 如果未对齐，主机会调用 `track_camera_target()` 控制底盘微调，并继续请求 `multi_anchor`。超过 `MULTI_ENTRY_ALIGN_TIMEOUT_MS` 后仍未对齐，则本次 R3 执行失败并退出。
