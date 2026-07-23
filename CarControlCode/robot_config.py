@@ -16,7 +16,7 @@ def clamp(value, low, high):
 # 硬件端口与运行模式
 # =============================================================================
 
-RUN_MODE = "multi"  # 可选值："idle" | "ps2" | "line_follow" | "debug" | "multi"
+RUN_MODE = "line_follow"  # 可选值："idle" | "ps2" | "line_follow" | "debug" | "multi"
 
 # UART 接线。
 SERVO_UART_ID = 2
@@ -96,7 +96,7 @@ STEER_ANGLE_MAX_DEG = 90.0
 CAMERA_ANGLE_MIN_DEG = -90.0  # 相机舵机。
 CAMERA_ANGLE_MAX_DEG = 0.0
 CAMERA_INIT_ANGLE_DEG = 0.0  # 相机上电复位角度，同时作为点动控制的初始状态。
-CAMERA_L3_ANGLE_DEG = -74.0  # multi 模式下 R3 前按 L3 时的相机角度。
+CAMERA_L3_ANGLE_DEG = -90.0  # multi 模式下 R3 前按 L3 时的相机角度。
 ARM_ROLL_MIN_DEG = -180.0  # 机械臂 Roll 舵机。
 ARM_ROLL_MAX_DEG = 180.0
 ARM_PITCH1_MIN_DEG = -90.0  # 机械臂 Pitch1 舵机。
@@ -134,11 +134,11 @@ MULTI_GRAB_ROW1_ROLL_DEG = 2.4
 MULTI_GRAB_ROW1_PITCH1_DEG = -63.9
 MULTI_GRAB_ROW1_PITCH2_DEG = -107
 MULTI_GRAB_ROW1_PITCH3_DEG = 0.0
-MULTI_GRAB_ROW2_ROLL_DEG = 2.4
+MULTI_GRAB_ROW2_ROLL_DEG = 1.0
 MULTI_GRAB_ROW2_PITCH1_DEG = -71
 MULTI_GRAB_ROW2_PITCH2_DEG = -83.0
 MULTI_GRAB_ROW2_PITCH3_DEG = -10
-MULTI_GRAB_ROW3_ROLL_DEG = 2.4
+MULTI_GRAB_ROW3_ROLL_DEG = 1.2
 MULTI_GRAB_ROW3_PITCH1_DEG = -79.0
 MULTI_GRAB_ROW3_PITCH2_DEG = -55.0
 MULTI_GRAB_ROW3_PITCH3_DEG = -28.8
