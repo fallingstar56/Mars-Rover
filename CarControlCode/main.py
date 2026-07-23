@@ -109,6 +109,7 @@ _MULTI_EXECUTE_BUTTON_NAME = "R3"
 _MULTI_COUNT_CONFIRM_MOVE_RAD_S = 0.12
 _MULTI_COUNT_CONFIRM_MOVE_MS = 1500
 _LINE_CALIBRATION_MARKER_COUNT = 4
+_LINE_CALIBRATION_THIRD_ALIGNED = "third_aligned"
 
 
 def clamp(value, low, high):
@@ -289,7 +290,12 @@ def move_right_until_line_calibration_x_aligned():
     global camera_data
     camera_data["value"] = None
     seen_unaligned = False
-    print("巡线标定：第 2 个绿色纸片动作，开始向右平移。")
+    rover.stop()
+    set_multi_camera_angle(CAMERA_L3_ANGLE_DEG)
+    time.sleep_ms(300)
+    print("巡线标定：第 2 个绿色纸片动作，相机已转到 %.1f°，开始向右平移。" % (
+        CAMERA_L3_ANGLE_DEG
+    ))
     rover.drive(MULTI_HORIZONTAL_SPEED_RAD_S, MULTI_HORIZONTAL_STEER_DEG)
     while True:
         if camera_data["value"] is not None:
@@ -316,8 +322,8 @@ def move_right_until_line_calibration_x_aligned():
                 if aligned and seen_unaligned:
                     rover.stop()
                     rover.center_chassis_servos()
-                    print("巡线标定：右移停止，绿色纸片已重新 X 对齐。")
-                    return
+                    print("巡线标定：右移停止，已与第 3 个绿色纸片 X 对齐。")
+                    return _LINE_CALIBRATION_THIRD_ALIGNED
                 if not aligned:
                     seen_unaligned = True
 
@@ -343,7 +349,7 @@ def handle_line_calibration_marker_1():
 
 
 def handle_line_calibration_marker_2():
-    move_right_until_line_calibration_x_aligned()
+    return move_right_until_line_calibration_x_aligned()
 
 
 def handle_line_calibration_marker_3(task_queue):
@@ -1513,6 +1519,13 @@ def line_follow_loop():
                         if calibration_marker_index == 1 and marker_result is not None:
                             line_task_queue = marker_result
                             print("巡线标定：保存二维码任务队列:", line_task_queue)
+                        if (
+                            current_marker_index == 2
+                            and marker_result == _LINE_CALIBRATION_THIRD_ALIGNED
+                        ):
+                            handle_line_calibration_marker_3(line_task_queue)
+                            rover.stop()
+                            return
                         if current_marker_index == 3:
                             rover.stop()
                             return
