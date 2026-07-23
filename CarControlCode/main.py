@@ -106,8 +106,8 @@ VALID_TASK_COLORS = ("red", "pink", "blue", "purple", "yellow")
 _MULTI_MAX_MOTOR_RAD_S = MAX_MOTOR_RPM * 2.0 * math.pi / 60.0
 _MULTI_MAX_PIVOT_RAD_S = _MULTI_MAX_MOTOR_RAD_S * PIVOT_SPEED_SCALE
 _MULTI_EXECUTE_BUTTON_NAME = "R3"
-_MULTI_COLUMN_COUNT_CONFIRM_TIMEOUT_MS = 3000
-_MULTI_COUNT_CONFIRM_PIVOT_RAD_S = 0.12
+_MULTI_COUNT_CONFIRM_MOVE_RAD_S = 0.12
+_MULTI_COUNT_CONFIRM_MOVE_MS = 1500
 
 
 def clamp(value, low, high):
@@ -544,13 +544,31 @@ def align_multi_left_bottom_anchor():
     return False
 
 
+def run_multi_count_confirm_adjustment():
+    """数量确认失败时，按固定方向慢速平移寻找完整视野。"""
+    moves = (
+        ("向前", _MULTI_COUNT_CONFIRM_MOVE_RAD_S, 0.0),
+        ("向后", -_MULTI_COUNT_CONFIRM_MOVE_RAD_S, 0.0),
+        ("向左", _MULTI_COUNT_CONFIRM_MOVE_RAD_S, -90.0),
+        ("向右", _MULTI_COUNT_CONFIRM_MOVE_RAD_S, 90.0),
+    )
+    for label, speed_rad_s, steer_angle_deg in moves:
+        print("multi：数量确认调整，%s慢速移动 %d ms。" % (
+            label,
+            _MULTI_COUNT_CONFIRM_MOVE_MS,
+        ))
+        rover.drive(speed_rad_s, steer_angle_deg)
+        time.sleep_ms(_MULTI_COUNT_CONFIRM_MOVE_MS)
+        rover.stop()
+        time.sleep_ms(80)
+
+
 def align_multi_column_remaining_first_row(target_color, expected_count, column_index):
     """抓取前按该列剩余同色数量确认，并对齐当前画面最下方的同色块。"""
     start_ms = time.ticks_ms()
-    mismatch_start_ms = None
+    count_adjusted = False
     while time.ticks_diff(time.ticks_ms(), start_ms) <= MULTI_ENTRY_ALIGN_TIMEOUT_MS:
         detection = request_multi_column_first_row_detect(target_color, expected_count)
-        now_ms = time.ticks_ms()
         if detection is None:
             rover.stop()
             print(
@@ -561,10 +579,8 @@ def align_multi_column_remaining_first_row(target_color, expected_count, column_
             continue
 
         if detection.get("column_count_check") and not detection.get("count_match"):
-            if mismatch_start_ms is None:
-                mismatch_start_ms = now_ms
             print(
-                "multi：第 %d 列 %s 当前识别数量=%d，期望剩余=%d，原地慢速调整。"
+                "multi：第 %d 列 %s 当前识别数量=%d，期望剩余=%d，开始慢速平移调整。"
                 % (
                     column_index + 1,
                     target_color,
@@ -572,25 +588,21 @@ def align_multi_column_remaining_first_row(target_color, expected_count, column_
                     detection.get("expected_count", expected_count),
                 )
             )
-            rover.pivot_turn(_MULTI_COUNT_CONFIRM_PIVOT_RAD_S)
-            if (
-                time.ticks_diff(now_ms, mismatch_start_ms)
-                >= _MULTI_COLUMN_COUNT_CONFIRM_TIMEOUT_MS
-            ):
+            if count_adjusted:
                 rover.stop()
                 print(
-                    "multi：第 %d 列 %s 剩余数量与画面识别数量不一致超过 %d ms。"
+                    "multi：第 %d 列 %s 慢速平移调整后仍与期望数量不一致，终止。"
                     % (
                         column_index + 1,
                         target_color,
-                        _MULTI_COLUMN_COUNT_CONFIRM_TIMEOUT_MS,
                     )
                 )
                 return False
-            time.sleep_ms(120)
+            run_multi_count_confirm_adjustment()
+            count_adjusted = True
             continue
 
-        mismatch_start_ms = None
+        count_adjusted = False
         if not detection.get("found"):
             rover.stop()
             print("multi：第 %d 列未识别到 %s 第一行色块。" % (column_index + 1, target_color))
