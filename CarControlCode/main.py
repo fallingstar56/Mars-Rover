@@ -106,6 +106,8 @@ VALID_TASK_COLORS = ("red", "pink", "blue", "purple", "yellow")
 _MULTI_MAX_MOTOR_RAD_S = MAX_MOTOR_RPM * 2.0 * math.pi / 60.0
 _MULTI_MAX_PIVOT_RAD_S = _MULTI_MAX_MOTOR_RAD_S * PIVOT_SPEED_SCALE
 _MULTI_EXECUTE_BUTTON_NAME = "R3"
+_MULTI_COLUMN_COUNT_CONFIRM_TIMEOUT_MS = 3000
+_MULTI_COUNT_CONFIRM_PIVOT_RAD_S = 0.12
 
 
 def clamp(value, low, high):
@@ -432,6 +434,28 @@ def parse_multi_detect_frame(raw_data):
     frames = str(raw_data).strip().splitlines()
     for frame in frames:
         parts = frame.strip().split()
+        if len(parts) >= 5 and parts[0] == "mc":
+            try:
+                result = {
+                    "column_count_check": True,
+                    "color": parts[1],
+                    "count": int(parts[2]),
+                    "expected_count": int(parts[3]),
+                    "count_match": parts[4] == "ok",
+                    "found": False,
+                }
+                if parts[4] == "ok" and len(parts) >= 7:
+                    result.update(
+                        {
+                            "found": True,
+                            "dx": int(parts[5]),
+                            "dy": int(parts[6]),
+                        }
+                    )
+                return result
+            except ValueError:
+                continue
+
         if len(parts) < 2 or parts[0] != "md":
             continue
         if parts[1] == "none":
@@ -458,6 +482,12 @@ def request_multi_detect(target_color=None):
 
 def request_multi_anchor_detect():
     return request_multi_detection_frame("multi_anchor\n")
+
+
+def request_multi_column_first_row_detect(target_color, expected_count):
+    return request_multi_detection_frame(
+        "multi_column %s %d\n" % (target_color, int(expected_count))
+    )
 
 
 def request_multi_detection_frame(command):
@@ -511,6 +541,84 @@ def align_multi_left_bottom_anchor():
 
     rover.stop()
     print("multi：左下角基准色块对齐超时。")
+    return False
+
+
+def align_multi_column_remaining_first_row(target_color, expected_count, column_index):
+    """抓取前按该列剩余同色数量确认，并对齐当前画面最下方的同色块。"""
+    start_ms = time.ticks_ms()
+    mismatch_start_ms = None
+    while time.ticks_diff(time.ticks_ms(), start_ms) <= MULTI_ENTRY_ALIGN_TIMEOUT_MS:
+        detection = request_multi_column_first_row_detect(target_color, expected_count)
+        now_ms = time.ticks_ms()
+        if detection is None:
+            rover.stop()
+            print(
+                "multi：第 %d 列 %s 剩余数量检测超时。"
+                % (column_index + 1, target_color)
+            )
+            time.sleep_ms(50)
+            continue
+
+        if detection.get("column_count_check") and not detection.get("count_match"):
+            if mismatch_start_ms is None:
+                mismatch_start_ms = now_ms
+            print(
+                "multi：第 %d 列 %s 当前识别数量=%d，期望剩余=%d，原地慢速调整。"
+                % (
+                    column_index + 1,
+                    target_color,
+                    detection.get("count", -1),
+                    detection.get("expected_count", expected_count),
+                )
+            )
+            rover.pivot_turn(_MULTI_COUNT_CONFIRM_PIVOT_RAD_S)
+            if (
+                time.ticks_diff(now_ms, mismatch_start_ms)
+                >= _MULTI_COLUMN_COUNT_CONFIRM_TIMEOUT_MS
+            ):
+                rover.stop()
+                print(
+                    "multi：第 %d 列 %s 剩余数量与画面识别数量不一致超过 %d ms。"
+                    % (
+                        column_index + 1,
+                        target_color,
+                        _MULTI_COLUMN_COUNT_CONFIRM_TIMEOUT_MS,
+                    )
+                )
+                return False
+            time.sleep_ms(120)
+            continue
+
+        mismatch_start_ms = None
+        if not detection.get("found"):
+            rover.stop()
+            print("multi：第 %d 列未识别到 %s 第一行色块。" % (column_index + 1, target_color))
+            time.sleep_ms(50)
+            continue
+
+        print(
+            "multi：第 %d 列 %s 剩余=%d，第一行色块 dx=%d, dy=%d。"
+            % (
+                column_index + 1,
+                target_color,
+                expected_count,
+                detection["dx"],
+                detection["dy"],
+            )
+        )
+        if multi_detection_centered(detection):
+            rover.stop()
+            rover.center_chassis_servos()
+            print("multi：第 %d 列 %s 第一行色块已对齐。" % (column_index + 1, target_color))
+            return True
+
+        # mc 的 dx/dy 是 blob_center - target_center；track_camera_target 使用 target - blob。
+        track_camera_target(rover, -detection["dx"], -detection["dy"])
+        time.sleep_ms(80)
+
+    rover.stop()
+    print("multi：第 %d 列 %s 第一行色块对齐超时。" % (column_index + 1, target_color))
     return False
 
 
@@ -656,6 +764,7 @@ def execute_multi_grab_placeholder(task_queue):
         column_by_color = {}
         for task_index, target_color in enumerate(task_queue):
             row_index = grabbed_count_by_color.get(target_color, 0)
+            expected_remaining_count = len(MULTI_GRAB_ROW_POSES) - row_index
             print("multi：开始寻找第 %d 个任务目标: %s" % (task_index + 1, target_color))
             cached_column = column_by_color.get(target_color)
             if cached_column is not None:
@@ -666,6 +775,12 @@ def execute_multi_grab_placeholder(task_queue):
                 if current_column != cached_column:
                     multi_move_horizontal(cached_column - current_column)
                     current_column = cached_column
+                if not align_multi_column_remaining_first_row(
+                    target_color,
+                    expected_remaining_count,
+                    cached_column,
+                ):
+                    return False
                 if not align_multi_current_target_color(target_color):
                     return False
                 if not execute_multi_single_grab_place_placeholder(
@@ -706,6 +821,12 @@ def execute_multi_grab_placeholder(task_queue):
                     if detection["color"] == target_color:
                         matched = True
                         column_by_color[target_color] = column_index
+                        if not align_multi_column_remaining_first_row(
+                            target_color,
+                            expected_remaining_count,
+                            column_index,
+                        ):
+                            return False
                         if not align_multi_current_target_color(target_color):
                             return False
                         if not execute_multi_single_grab_place_placeholder(
