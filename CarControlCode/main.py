@@ -31,6 +31,7 @@ from ps2_lib import PS2Controller, PS2Receiver
 from robot_config import (
     ARM_AUTO_ACTION_DELAY_MS,
     ARM_GRAB_PITCH1_DEG,
+    
     ARM_GRAB_PITCH2_DEG,
     ARM_GRAB_PITCH3_DEG,
     ARM_INIT_PITCH1_DEG,
@@ -283,7 +284,7 @@ def reset_arm_after_place(rover):
     """放置后复位机械臂：先收 pitch1，再恢复完整初始位。"""
     rover.arm.move_joint_pose(
         rover.arm.roll_deg,
-        -15.0,
+        -45.0,
         rover.arm.pitch2_deg,
         rover.arm.pitch3_deg,
     )

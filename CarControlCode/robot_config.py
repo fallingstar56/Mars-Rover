@@ -81,13 +81,13 @@ CAMERA_SERVO_ID = 8  # 相机舵机 ID，同调试软件配置结果，不要修
 RESERVE_SERVO_ENABLED = True  # 默认 False。
 RESERVE_SERVO_IDS = (15,)  # 可填多个 ID，如 (13, 14)。
 RESERVE_SERVO_SIGNS = {15: 1}  # 每个 ID 的方向符号，1 或 -1，如 {13: 1, 14: -1}。
-RESERVE_SERVO_INIT_ANGLE_DEG = {15: 100}  # 每个 ID 的初始角，如 {13: 0.0, 14: 10.0}。
-RESERVE_SERVO_MIN_DEG = {15: 40}  # 每个 ID 的下限，如 {13: -90.0, 14: 0.0}。
-RESERVE_SERVO_MAX_DEG = {15: 130}  # 每个 ID 的上限，如 {13: 90.0, 14: 45.0}。
+RESERVE_SERVO_INIT_ANGLE_DEG = {15: 135}  # 每个 ID 的初始角，如 {13: 0.0, 14: 10.0}。
+RESERVE_SERVO_MIN_DEG = {15: 50}  # 每个 ID 的下限，如 {13: -90.0, 14: 0.0}。
+RESERVE_SERVO_MAX_DEG = {15: 135.0}  # 每个 ID 的上限，如 {13: 90.0, 14: 45.0}。
 
 # 夹爪舵机配置。
 GRIPPER_SERVO_ID = 15
-GRIPPER_OPEN_ANGLE_DEG = 120.0
+GRIPPER_OPEN_ANGLE_DEG = 135
 GRIPPER_CLOSED_ANGLE_DEG = 54
 
 # 舵机控制上下限配置。
