@@ -37,6 +37,9 @@ current_task_index = 0
 target_reported = False
 multi_detect_requested = False
 multi_detect_target_color = None
+multi_column_requested = False
+multi_column_target_color = None
+multi_column_expected_count = 0
 multi_anchor_requested = False
 multi_debug_image_index = 0
 
@@ -224,14 +227,21 @@ def save_multi_debug_image(img, candidates, prefix):
         print("multi debug image save failed:", path, error)
 
 
-def find_multi_left_bottom_block_from_candidates(candidates):
+def find_multi_first_row_blocks_from_candidates(candidates):
     if not candidates:
-        return None, 0
+        return [], 0
 
-    # 3x3 阵列中左下角：先按中心 y 取最下面一行，再取这一行最靠左的色块。
-    bottom_row = sorted(candidates, key=lambda item: item[1][6], reverse=True)[:3]
-    color, blob = min(bottom_row, key=lambda item: item[1][5])
-    return (color, blob), len(candidates)
+    # 第一行基准：先按中心 y 取最下面一行，再按中心 x 从左到右排列三列。
+    first_row = sorted(candidates, key=lambda item: item[1][6], reverse=True)[:3]
+    first_row = sorted(first_row, key=lambda item: item[1][5])
+    return first_row, len(candidates)
+
+
+def find_multi_left_bottom_block_from_candidates(candidates):
+    first_row, block_count = find_multi_first_row_blocks_from_candidates(candidates)
+    if not first_row:
+        return None, block_count
+    return first_row[0], block_count
 
 
 def find_multi_first_row_block(img):
@@ -268,6 +278,19 @@ def find_multi_target_color_block(img, target_color):
     return color, blob
 
 
+def find_multi_column_first_row_block(img, target_color):
+    candidates = [
+        (color, blob)
+        for color, blob in collect_multi_blocks(img)
+        if color == target_color
+    ]
+    if not candidates:
+        return None, 0
+
+    color, blob = max(candidates, key=lambda item: item[1][6])
+    return (color, blob), len(candidates)
+
+
 def find_multi_left_bottom_block(img):
     candidates = collect_multi_blocks(img)
     return find_multi_left_bottom_block_from_candidates(candidates)
@@ -294,6 +317,34 @@ def report_multi_detection(img, detection, prefix):
         5,
     )
     print(prefix, detected_color, dx, dy)
+
+
+def report_multi_column_detection(img, target_color, expected_count, detection, count):
+    if count != expected_count or detection is None:
+        serial.write_str(
+            "mc %s %d %d mismatch\n" % (target_color, count, expected_count)
+        )
+        print("multi column:", target_color, count, expected_count, "mismatch")
+        return
+
+    detected_color, detected_blob = detection
+    center_x = int(detected_blob[5])
+    center_y = int(detected_blob[6])
+    dx = center_x - int(TARGET_CENTER_X)
+    dy = center_y - int(TARGET_CENTER_Y)
+    serial.write_str(
+        "mc %s %d %d ok %d %d\n"
+        % (detected_color, count, expected_count, dx, dy)
+    )
+    img.draw_rect(
+        detected_blob[0],
+        detected_blob[1],
+        detected_blob[2],
+        detected_blob[3],
+        draw_color_by_task_color[detected_color],
+        5,
+    )
+    print("multi column:", detected_color, count, expected_count, "ok", dx, dy)
 
 
 # 摄像头初始化。
@@ -331,6 +382,17 @@ while not app.need_exit():
                 multi_detect_target_color = parts[1]
             else:
                 multi_detect_target_color = None
+        elif command.startswith("multi_column"):
+            parts = command.split()
+            if len(parts) >= 3 and parts[1] in VALID_TASK_COLORS:
+                try:
+                    multi_column_target_color = parts[1]
+                    multi_column_expected_count = int(parts[2])
+                    multi_column_requested = True
+                except ValueError:
+                    multi_column_requested = False
+                    multi_column_target_color = None
+                    multi_column_expected_count = 0
         elif command == "multi_anchor":
             multi_anchor_requested = True
 
@@ -344,6 +406,22 @@ while not app.need_exit():
             prefix = "multi detect %s:" % multi_detect_target_color
         multi_detect_target_color = None
         report_multi_detection(img, detection, prefix)
+
+    if multi_column_requested:
+        multi_column_requested = False
+        detection, count = find_multi_column_first_row_block(
+            img,
+            multi_column_target_color,
+        )
+        report_multi_column_detection(
+            img,
+            multi_column_target_color,
+            multi_column_expected_count,
+            detection,
+            count,
+        )
+        multi_column_target_color = None
+        multi_column_expected_count = 0
 
     if multi_anchor_requested:
         multi_anchor_requested = False
