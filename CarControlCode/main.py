@@ -108,8 +108,10 @@ _MULTI_MAX_PIVOT_RAD_S = _MULTI_MAX_MOTOR_RAD_S * PIVOT_SPEED_SCALE
 _MULTI_EXECUTE_BUTTON_NAME = "R3"
 _MULTI_COUNT_CONFIRM_MOVE_RAD_S = 0.12
 _MULTI_COUNT_CONFIRM_MOVE_MS = 1500
-_LINE_CALIBRATION_MARKER_COUNT = 4
-_LINE_CALIBRATION_THIRD_ALIGNED = "third_aligned"
+_LINE_CALIBRATION_MARKER_COUNT = 5
+_LINE_CALIBRATION_MARKER_LEFT = "marker_left"
+_LINE_CALIBRATION_MULTI_MARKER_ALIGNED = "multi_marker_aligned"
+_LINE_CALIBRATION_SLOW_FORWARD_RAD_S = 0.25
 
 
 def clamp(value, low, high):
@@ -258,6 +260,11 @@ def follow_line_target(rover, line_dx, target_dx=0):
     return LINE_FOLLOW_BASE_SPEED_RAD_S, steer_angle_deg
 
 
+def drive_line_straight():
+    rover.drive(LINE_FOLLOW_BASE_SPEED_RAD_S, 0.0)
+    return LINE_FOLLOW_BASE_SPEED_RAD_S, 0.0
+
+
 def line_calibration_marker_x_aligned(detection):
     return (
         detection is not None
@@ -293,7 +300,7 @@ def move_right_until_line_calibration_x_aligned():
     rover.stop()
     set_multi_camera_angle(CAMERA_L3_ANGLE_DEG)
     time.sleep_ms(300)
-    print("巡线标定：第 2 个绿色纸片动作，相机已转到 %.1f°，开始向右平移。" % (
+    print("巡线标定：第 3 个绿色纸片动作，相机已转到 %.1f°，开始向右平移。" % (
         CAMERA_L3_ANGLE_DEG
     ))
     rover.drive(MULTI_HORIZONTAL_SPEED_RAD_S, MULTI_HORIZONTAL_STEER_DEG)
@@ -322,24 +329,76 @@ def move_right_until_line_calibration_x_aligned():
                 if aligned and seen_unaligned:
                     rover.stop()
                     rover.center_chassis_servos()
-                    print("巡线标定：右移停止，已与第 3 个绿色纸片 X 对齐。")
-                    return _LINE_CALIBRATION_THIRD_ALIGNED
+                    print("巡线标定：右移停止，已与 multi 抓取标定纸片 X 对齐。")
+                    return _LINE_CALIBRATION_MULTI_MARKER_ALIGNED
                 if not aligned:
                     seen_unaligned = True
 
         time.sleep_ms(50)
 
 
-def handle_line_calibration_marker(marker_index, task_queue=None):
+def slow_forward_adjust_until_line_calibration_marker_lost(initial_detection):
+    """低速前进并按 X 偏差微调，直到当前绿色标定纸片离开视野。"""
+    global camera_data
+    camera_data["value"] = None
+    rover.stop()
+    time.sleep_ms(100)
+    print("巡线标定：第 2 个绿色纸片动作，低速前进并保持 X 方向对齐。")
+
+    current_detection = initial_detection
+    while True:
+        if current_detection is not None:
+            steer_angle_deg = clamp(
+                -int(current_detection["dx"]) * LINE_FOLLOW_STEER_KP,
+                -LINE_FOLLOW_MAX_STEER_DEG,
+                LINE_FOLLOW_MAX_STEER_DEG,
+            )
+            rover.drive(_LINE_CALIBRATION_SLOW_FORWARD_RAD_S, steer_angle_deg)
+            print(
+                "巡线标定慢速前进: dx=%d, area=%d, speed=%.2f rad/s, steer=%.1f deg"
+                % (
+                    current_detection["dx"],
+                    current_detection["area"],
+                    _LINE_CALIBRATION_SLOW_FORWARD_RAD_S,
+                    steer_angle_deg,
+                )
+            )
+            current_detection = None
+
+        if camera_data["value"] is not None:
+            raw_data = camera_data["value"]
+            camera_data["value"] = None
+            if isinstance(raw_data, bytes):
+                raw_data = raw_data.decode("utf-8", "replace")
+
+            marker_seen = False
+            frames = str(raw_data).strip().splitlines()
+            for frame in frames:
+                calibration_info = parse_line_calibration_frame(frame)
+                if calibration_info is not None:
+                    current_detection = calibration_info
+                    marker_seen = True
+                    break
+
+            if not marker_seen:
+                print("巡线标定：第 2 个绿色纸片已离开视野，继续后续巡线。")
+                return _LINE_CALIBRATION_MARKER_LEFT
+
+        time.sleep_ms(50)
+
+
+def handle_line_calibration_marker(marker_index, task_queue=None, detection=None):
     """第 marker_index 个绿色标定纸片对齐后的动作入口，编号从 1 开始。"""
     if marker_index == 1:
         return handle_line_calibration_marker_1()
     elif marker_index == 2:
-        return handle_line_calibration_marker_2()
+        return handle_line_calibration_marker_2(detection)
     elif marker_index == 3:
-        return handle_line_calibration_marker_3(task_queue)
+        return handle_line_calibration_marker_3()
     elif marker_index == 4:
-        return handle_line_calibration_marker_4()
+        return handle_line_calibration_marker_4(task_queue)
+    elif marker_index == 5:
+        return handle_line_calibration_marker_5()
     return None
 
 
@@ -348,16 +407,20 @@ def handle_line_calibration_marker_1():
     return wait_line_qrcode_task_queue()
 
 
-def handle_line_calibration_marker_2():
+def handle_line_calibration_marker_2(initial_detection=None):
+    return slow_forward_adjust_until_line_calibration_marker_lost(initial_detection)
+
+
+def handle_line_calibration_marker_3():
     return move_right_until_line_calibration_x_aligned()
 
 
-def handle_line_calibration_marker_3(task_queue):
+def handle_line_calibration_marker_4(task_queue):
     rover.stop()
     if not task_queue:
-        print("巡线标定：第 3 个绿色纸片已对齐，但还没有二维码任务队列。")
+        print("巡线标定：multi 抓取标定纸片已对齐，但还没有二维码任务队列。")
         return False
-    print("巡线标定：第 3 个绿色纸片已对齐，开始复用 multi 抓取放置链路。")
+    print("巡线标定：multi 抓取标定纸片已对齐，开始复用 multi 抓取放置链路。")
     ok = execute_multi_grab_placeholder(task_queue)
     rover.stop()
     if ok:
@@ -367,7 +430,7 @@ def handle_line_calibration_marker_3(task_queue):
     return ok
 
 
-def handle_line_calibration_marker_4():
+def handle_line_calibration_marker_5():
     pass
 
 
@@ -1462,11 +1525,14 @@ def main():
 def line_follow_loop():
     global camera_data
     last_line_data_ms = time.ticks_ms()
-    line_motion_active = False
+    line_motion_active = True
+    first_segment_straight_active = True
     target_line_dx = None
     calibration_marker_index = 1
     calibration_waiting_leave = False
     line_task_queue = []
+    drive_line_straight()
+    print("巡线第一段：直线匀速前进，等待第 1 个绿色标定块。")
 
     while True:
         if camera_data["value"] is not None:
@@ -1487,7 +1553,7 @@ def line_follow_loop():
                     if calibration_marker_index > _LINE_CALIBRATION_MARKER_COUNT:
                         rover.stop()
                         line_motion_active = False
-                        print("巡线标定：4 个绿色纸片均已处理，忽略后续标定纸片。")
+                        print("巡线标定：5 个绿色纸片均已处理，忽略后续标定纸片。")
                         continue
 
                     if calibration_waiting_leave:
@@ -1507,6 +1573,19 @@ def line_follow_loop():
                             calibration_info["area"],
                         )
                     )
+                    if calibration_marker_index == 2:
+                        marker_result = handle_line_calibration_marker(
+                            calibration_marker_index,
+                            line_task_queue,
+                            calibration_info,
+                        )
+                        if marker_result == _LINE_CALIBRATION_MARKER_LEFT:
+                            calibration_marker_index += 1
+                            calibration_waiting_leave = False
+                            last_line_data_ms = time.ticks_ms()
+                            line_motion_active = True
+                        continue
+
                     if line_calibration_marker_x_aligned(calibration_info):
                         rover.stop()
                         rover.center_chassis_servos()
@@ -1515,18 +1594,19 @@ def line_follow_loop():
                         marker_result = handle_line_calibration_marker(
                             current_marker_index,
                             line_task_queue,
+                            calibration_info,
                         )
                         if calibration_marker_index == 1 and marker_result is not None:
                             line_task_queue = marker_result
                             print("巡线标定：保存二维码任务队列:", line_task_queue)
                         if (
-                            current_marker_index == 2
-                            and marker_result == _LINE_CALIBRATION_THIRD_ALIGNED
+                            current_marker_index == 3
+                            and marker_result == _LINE_CALIBRATION_MULTI_MARKER_ALIGNED
                         ):
-                            handle_line_calibration_marker_3(line_task_queue)
+                            handle_line_calibration_marker_4(line_task_queue)
                             rover.stop()
                             return
-                        if current_marker_index == 3:
+                        if current_marker_index == 4:
                             rover.stop()
                             return
                         calibration_marker_index += 1
@@ -1535,6 +1615,7 @@ def line_follow_loop():
                         continue
 
                     # lc 的 dx/dy 与 multi 的 md 一样，是 blob_center - target_center。
+                    first_segment_straight_active = False
                     speed, steer = track_camera_target(
                         rover,
                         -calibration_info["dx"],
@@ -1556,6 +1637,14 @@ def line_follow_loop():
                     calibration_waiting_leave = False
 
                 last_line_data_ms = time.ticks_ms()
+                if calibration_marker_index == 1:
+                    speed, steer = drive_line_straight()
+                    line_motion_active = True
+                    if not first_segment_straight_active:
+                        print("巡线第一段：未对齐第 1 个绿色标定块，恢复直线匀速前进。")
+                    first_segment_straight_active = True
+                    continue
+
                 if line_info["lost"]:
                     rover.stop()
                     line_motion_active = False
