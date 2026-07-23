@@ -280,12 +280,12 @@ def run_gripper_release(rover):
 
 
 def reset_arm_after_place(rover):
-    """放置后复位机械臂：先复位 pitch1，再复位 pitch2。"""
+    """放置后复位机械臂：先收 pitch1，再恢复完整初始位。"""
     rover.arm.move_joint_pose(
-        ARM_INIT_ROLL_DEG,
-        ARM_INIT_PITCH1_DEG,
+        rover.arm.roll_deg,
+        -15.0,
         rover.arm.pitch2_deg,
-        ARM_INIT_PITCH3_DEG,
+        rover.arm.pitch3_deg,
     )
     time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
     rover.arm.apply_initial_pose()
