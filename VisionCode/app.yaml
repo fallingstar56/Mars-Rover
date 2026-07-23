@@ -1,8 +1,8 @@
 files:
   - main.py
-id: num
-name: '0.0'
-version: 4.10.3
+id: num3
+name: CAM2.1
+version: 4.12.5
 author: '0.0'
-icon: ''
+icon: app.png
 desc: '0.0'
