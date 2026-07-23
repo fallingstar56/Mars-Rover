@@ -283,7 +283,7 @@ def reset_arm_after_place(rover):
     """放置后复位机械臂：先收 pitch1，再恢复完整初始位。"""
     rover.arm.move_joint_pose(
         rover.arm.roll_deg,
-        -15.0,
+        -45.0,
         rover.arm.pitch2_deg,
         rover.arm.pitch3_deg,
     )
@@ -503,8 +503,7 @@ def align_multi_left_bottom_anchor():
             print("multi：已对齐 3x3 左下角基准色块，当前位置作为第一列起点。")
             return True
 
-        # md 的 dx/dy 是 blob_center - target_center；track_camera_target 使用 target - blob。
-        track_camera_target(rover, -detection["dx"], -detection["dy"])
+        track_multi_detection_by_axis(detection)
         time.sleep_ms(80)
 
     rover.stop()
@@ -545,8 +544,7 @@ def align_multi_current_target_color(target_color):
             print("multi：目标色块 %s 已再次对齐。" % target_color)
             return True
 
-        # md 的 dx/dy 是 blob_center - target_center；track_camera_target 使用 target - blob。
-        track_camera_target(rover, -detection["dx"], -detection["dy"])
+        track_multi_detection_by_axis(detection)
         time.sleep_ms(80)
 
     rover.stop()
@@ -561,6 +559,44 @@ def multi_detection_centered(detection):
         and abs(detection["dx"]) <= MULTI_CENTER_TOLERANCE_PX
         and abs(detection["dy"]) <= MULTI_CENTER_TOLERANCE_PX
     )
+
+
+def _multi_axis_track_speed(error_px, half_size):
+    error_px = int(error_px)
+    magnitude = clamp(abs(error_px) / half_size, 0.0, 1.0)
+    speed_rad_s = max(
+        CAMERA_TRACK_MIN_SPEED_RAD_S,
+        magnitude * CAMERA_TRACK_MAX_SPEED_RAD_S,
+    )
+    if abs(error_px) <= CAMERA_TRACK_NEAR_GAP_PX:
+        speed_rad_s = min(speed_rad_s, CAMERA_TRACK_NEAR_MAX_SPEED_RAD_S)
+    return speed_rad_s
+
+
+def track_multi_detection_by_axis(detection):
+    """multi 微调：先按 dy 前后对齐，再舵机转 90 度按 dx 横向对齐。"""
+    dx = int(detection["dx"])
+    dy = int(detection["dy"])
+
+    if abs(dy) > MULTI_CENTER_TOLERANCE_PX:
+        # md 的 dy 是 blob_center - target_center；车体前后移动方向使用 target - blob。
+        speed_rad_s = _multi_axis_track_speed(dy, CAMERA_Y_HALF_SIZE)
+        if dy > 0:
+            speed_rad_s = -speed_rad_s
+        rover.drive(speed_rad_s, 0.0)
+        return "dy"
+
+    if abs(dx) > MULTI_CENTER_TOLERANCE_PX:
+        # dy 已对齐后，将舵机转到横向 90 度，再用电机前进对齐 dx。
+        steer_angle_deg = 90.0 if dx > 0 else -90.0
+        speed_rad_s = _multi_axis_track_speed(dx, CAMERA_X_HALF_SIZE)
+        rover.drive(0.0, steer_angle_deg)
+        time.sleep_ms(80)
+        rover.drive(speed_rad_s, steer_angle_deg)
+        return "dx"
+
+    rover.stop()
+    return "centered"
 
 
 def multi_move_horizontal(direction_steps):
