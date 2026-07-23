@@ -268,11 +268,8 @@ def drive_line_straight():
 
 
 def line_calibration_marker_x_aligned(detection):
-    return (
-        detection is not None
-        and detection.get("found")
-        and abs(detection["dx"]) <= MULTI_CENTER_TOLERANCE_PX
-    )
+    # 标定块的识别框与画面参考线均为水平/竖直轴线；不再要求中心距离接近。
+    return detection is not None and detection.get("found")
 
 
 def wait_line_qrcode_task_queue():
@@ -295,10 +292,10 @@ def wait_line_qrcode_task_queue():
 
 
 def move_right_until_line_calibration_x_aligned():
-    """向右平移，直到绿色标定纸片再次与相机中心 X 方向对齐。"""
+    """向右平移，直到离开当前标定纸片并识别到下一个标定纸片。"""
     global camera_data
     camera_data["value"] = None
-    seen_unaligned = False
+    seen_marker_lost = False
     rover.stop()
     set_multi_camera_angle(CAMERA_L3_ANGLE_DEG)
     time.sleep_ms(300)
@@ -314,27 +311,29 @@ def move_right_until_line_calibration_x_aligned():
                 raw_data = raw_data.decode("utf-8", "replace")
 
             frames = str(raw_data).strip().splitlines()
+            marker_seen = False
             for frame in frames:
                 calibration_info = parse_line_calibration_frame(frame)
                 if calibration_info is None:
                     continue
 
-                aligned = line_calibration_marker_x_aligned(calibration_info)
+                marker_seen = True
                 print(
-                    "巡线标定右移: dx=%d, area=%d, aligned=%s"
+                    "巡线标定右移: dx=%d, area=%d, parallel=%s"
                     % (
                         calibration_info["dx"],
                         calibration_info["area"],
-                        aligned,
+                        line_calibration_marker_x_aligned(calibration_info),
                     )
                 )
-                if aligned and seen_unaligned:
+                if seen_marker_lost:
                     rover.stop()
                     rover.center_chassis_servos()
-                    print("巡线标定：右移停止，已与 multi 抓取标定纸片 X 对齐。")
+                    print("巡线标定：右移停止，已识别到 multi 抓取标定纸片。")
                     return _LINE_CALIBRATION_MULTI_MARKER_ALIGNED
-                if not aligned:
-                    seen_unaligned = True
+
+            if not marker_seen:
+                seen_marker_lost = True
 
         time.sleep_ms(50)
 
@@ -1598,7 +1597,7 @@ def line_follow_loop():
                     if line_calibration_marker_x_aligned(calibration_info):
                         rover.stop()
                         rover.center_chassis_servos()
-                        print("巡线标定：第 %d 个绿色纸片已对齐。" % calibration_marker_index)
+                        print("巡线标定：第 %d 个绿色纸片已识别，平行条件成立。" % calibration_marker_index)
                         current_marker_index = calibration_marker_index
                         marker_result = handle_line_calibration_marker(
                             current_marker_index,
