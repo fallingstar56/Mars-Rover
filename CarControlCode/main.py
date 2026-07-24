@@ -453,6 +453,7 @@ def run_gripper_release(rover):
 
 def run_multi_task_loaded_gripper_hint():
     """multi 任务队列加载成功后，用夹爪开合提示。"""
+    rover.stop()
     print(
         "multi：任务队列已获取，夹爪闭合到 %.1f° 后打开到 %.1f°提示。"
         % (GRIPPER_CLOSED_ANGLE_DEG, GRIPPER_OPEN_ANGLE_DEG)
@@ -461,6 +462,7 @@ def run_multi_task_loaded_gripper_hint():
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
     if run_gripper_release(rover):
         time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+    rover.stop()
 
 
 def reset_arm_after_place(rover):
@@ -1160,6 +1162,7 @@ def multi_loop(ps2):
             if parsed_task is None:
                 print("multi：等待 sekuai.py 自动二维码任务，忽略串口数据:", raw_data)
             else:
+                rover.stop()
                 task_queue = parsed_task
                 task_loaded = True
                 send_camera_command(camera_uart, "ok\n")
