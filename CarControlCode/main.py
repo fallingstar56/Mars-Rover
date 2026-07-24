@@ -451,6 +451,18 @@ def run_gripper_release(rover):
     return ok
 
 
+def run_multi_task_loaded_gripper_hint():
+    """multi 任务队列加载成功后，用夹爪开合提示。"""
+    print(
+        "multi：任务队列已获取，夹爪闭合到 %.1f° 后打开到 %.1f°提示。"
+        % (GRIPPER_CLOSED_ANGLE_DEG, GRIPPER_OPEN_ANGLE_DEG)
+    )
+    if run_gripper_grab(rover):
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+    if run_gripper_release(rover):
+        time.sleep_ms(ARM_AUTO_ACTION_DELAY_MS)
+
+
 def reset_arm_after_place(rover):
     """放置后复位机械臂：先收 pitch1，再恢复完整初始位。"""
     rover.arm.move_joint_pose(
@@ -1152,6 +1164,7 @@ def multi_loop(ps2):
                 task_loaded = True
                 send_camera_command(camera_uart, "ok\n")
                 print("multi：二维码任务加载完成，抓取队列:", task_queue)
+                run_multi_task_loaded_gripper_hint()
             time.sleep_ms(50)
             continue
 
